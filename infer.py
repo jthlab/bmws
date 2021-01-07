@@ -33,7 +33,7 @@ _scan = jax.lax.scan
 
 def loglik(
     s: np.ndarray, h: np.ndarray, p_obs: np.ndarray, grid: np.ndarray, Ne: float
-) -> Tuple[np.ndarray, np.ndarray]:
+) -> float:
     """likelihood of allele frequency trajectory with selection.
 
     Args:
@@ -66,7 +66,7 @@ def loglik(
 
 def xform(x):
     # ensure that 1+s, 1+sh > 0
-    return -1.0 + jnp.exp(x)
+    return jnp.expm1(x)
 
 
 @jax.jit
@@ -110,13 +110,13 @@ def sim_and_fit(
     s_mode: bool = True,
     fixed_val: float = 0.5,
     ell1: bool = False,
+    D=100,  # density of discretization
+    Ne=1e4,  # effective population size
+    n=100,  # sample size
+    d=10,  # sampling interval
 ):
     # Parameters
     T = len(mdl["s"]) + 1  # number of time points
-    D = 100  # density of discretization
-    Ne = 1e4  # effective population size
-    n = 100  # sample size
-    d = 10  # sampling interval
     grid = np.linspace(0, 1, D + 1)
 
     # Simulate true trajectory
@@ -140,11 +140,17 @@ def sim_and_fit(
         args += (0.0,)
         options = {"lam": lam_}
     else:
-        optimizer = "BFGS"
+        optimizer = "TNC"
         args += (lam_,)
         options = {}
     x0 = jnp.zeros(T - 1)
     res = scipy.optimize.minimize(
-        obj, x0, jac=grad, args=args, method=optimizer, options=options
+        obj,
+        x0,
+        jac=grad,
+        args=args,
+        method=optimizer,
+        options=options,
+        bounds=np.log1p(np.repeat([[-0.1, 0.1]], T - 1, 0)),
     )
     return {"x": xform(res.x), "obs": obs}
