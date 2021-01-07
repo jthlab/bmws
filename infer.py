@@ -103,6 +103,61 @@ def sim_wf(
     return f
 
 
+def fit_full(
+    obs: np.ndarray, #observations at each generatin (including 0 observations)
+    size: np.ndarray, #Number of observations at each generation (can be 0)
+    lam_: float,
+    s_mode: bool = True,
+    fixed_val: float = 0.5,
+    ell1: bool = False,
+    D: int = 100,
+    Ne: int = 1000
+):
+    T = len(obs)  # number of time points
+    grid = np.linspace(0, 1, D + 1)
+
+    # Calculate emission probabilities
+    p_obs = np.ones((T, D + 2))  # two extra states to account for fixation
+    f = np.concatenate([midpoints(grid), [0.0], [1.0]])
+    p_obs[::] = scipy.stats.binom.pmf(obs[:, None], size[:, None], f[None, :])
+
+    # Perform optimization
+    def _obj(*args):
+        ret = obj(*args)
+        return tuple(map(np.array, ret))
+
+    args = (s_mode, fixed_val, p_obs, grid, Ne)
+    if ell1:
+        optimizer = fusedlasso
+        args += (0.0,)
+        options = {"lam": lam_}
+    else:
+        optimizer = "BFGS"
+        args += (lam_,)
+        options = {}
+    x0 = jnp.zeros(T - 1)
+    res = scipy.optimize.minimize(
+        obj, x0, jac=grad, args=args, method=optimizer, options=options
+    )
+    return {"x": xform(res.x), "obs": obs}
+
+def sim_full(
+    mdl: Dict,
+    seed: int,
+    D: int = 100,
+    Ne: int = 1000,
+    n: int = 100,  # sample size
+    d: int = 10  # sampling interval
+):
+    T = len(mdl["s"]) + 1  # number of time points
+    rng = np.random.default_rng(seed)
+    af = sim_wf(Ne, mdl["s"], mdl["h"], mdl["f0"], rng)
+    obs=np.zeros(T, dtype=int)
+    size=np.zeros(T, dtype=int)
+    obs[::d] = rng.binomial(n, af[::d])  # sample n haploids every d generations
+    size[::d] = n
+    return obs, size
+
 def sim_and_fit(
     mdl: Dict,
     seed: int,
