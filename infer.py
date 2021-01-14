@@ -111,7 +111,7 @@ def fit_full(
     fixed_val: float = 0.5,
     ell1: bool = False,
     D: int = 100,
-    Ne: int = 1000
+    Ne: int = 1e4
 ):
     T = len(obs)  # number of time points
     grid = np.linspace(0, 1, D + 1)
@@ -132,20 +132,25 @@ def fit_full(
         args += (0.0,)
         options = {"lam": lam_}
     else:
-        optimizer = "BFGS"
+        optimizer = "TNC"
         args += (lam_,)
         options = {}
     x0 = jnp.zeros(T - 1)
     res = scipy.optimize.minimize(
-        obj, x0, jac=grad, args=args, method=optimizer, options=options
-    )
+        obj,
+        x0,
+        jac=grad,
+        args=args,
+        method=optimizer,
+        options=options,
+        bounds=np.log1p(np.repeat([[-0.1, 0.1]], T - 1, 0)),
+    )        
     return {"x": xform(res.x), "obs": obs}
 
 def sim_full(
     mdl: Dict,
     seed: int,
-    D: int = 100,
-    Ne: int = 1000,
+    Ne: int = 1e4,
     n: int = 100,  # sample size
     d: int = 10  # sampling interval
 ):
