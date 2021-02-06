@@ -1,18 +1,48 @@
 "HMM-related functions"
+import dataclasses
 from functools import partial
 from typing import Tuple, Union
 
 import jax
-from jax import numpy as jnp
-from jax.scipy.special import xlogy, gammaln
 import numpy as np
+from jax import numpy as jnp
+from jax.experimental.host_callback import id_print
+from jax.scipy.special import xlogy
 
-from common import f_sh, poisson_cdf, binom_pmf, Discretization
+# id_print = lambda x, *args, **kwargs: x
+
+from common import (
+    f_sh,
+    poisson_cdf,
+    Discretization,
+    binom_logpmf,
+    binom_logcdf_cp,
+    logexpm1,
+    log_matmul,
+    log_matpow_ub,
+    safe_logdiff,
+)
 
 vf_sh = jnp.vectorize(f_sh)
 
 
-def trans(disc1, disc2, s: float, h: float) -> np.ndarray:
+def log_trans_exact(s, h, discr1, discr2):
+    # discr1 and k2 represent the discretizations before and after mating. depending on the respective sizes,
+    # say Ne1, Ne2, they can either be discrete or continuous (intervals).
+    # We can always assume that Ne2 < M, implying that k2 is discrete -- else we wouldn't be calling this function.
+    # discr1 could be continuous. If so, it's endpoint will be 1. Otherwise, its endpoint will be Ne1 > 1.
+    p = f_sh(discr1 / discr1[-1], s, h)
+    k = discr2
+    Ne2 = discr2[-1]
+    ret = binom_logpmf(k[None, :], Ne2, p[:, None])
+    # ret = id_print(ret, what="log_trans_exact()")
+    return ret
+
+
+def log_trans_discr(s: float, h: float, discr1, discr2) -> np.ndarray:
+    # as above, discr1 and discr2 represent the discretizations before and after mating. depending on the respective sizes,
+    # say Ne1, Ne2, they can either be discrete or continuous (intervals).
+    # We can always assume that Ne2 > M, implying that k2 is continuous -- else we wouldn't be calling this function.
     """transition matrix for allele frequency under selection
 
     Params:
@@ -33,136 +63,185 @@ def trans(disc1, disc2, s: float, h: float) -> np.ndarray:
                 [(M - 1) * (Ne - c) / M, Ne - c), Ne - c + 1, ..., Ne - 1, Ne}
 
     """
-    low1, mid1, high1, Ne1 = disc1
-    low2, mid2, high2, Ne2 = disc2
+    #
+    # when the allele is at low frequency we model it as Poisson draws. Low frequency is defined somewhat arbitrarily
+    # to be bottom 5% of the discretization. This could probably be improved. It's better to set it too high than too low,
+    # since CLT behavior saves us in that case.
+    # s, h, discr1, discr2 = id_print((s, h, discr1, discr2), what="log_trans_discr()")
+    Ne1 = discr1[-1]
+    # np < 5, n > 100 => p <= .2
+    L = int(0.05 * len(discr1))
+    assert L > 0
+    p0 = discr1 / discr1[-1]
+    p1 = vf_sh(p0, s, h)
+    # p0, p1 = id_print((p0, p1), what="p0p1")
+    lam_low = p1[:L] * Ne1
+    c_pois = poisson_cdf(discr2[None, :], lam_low[:, None])
+    # c_pois = Ne1 * jnp.ones_like(c_pois)
+    T_1 = jnp.concatenate(
+        [jnp.log(c_pois[:, :1]), safe_logdiff(c_pois, axis=1)], axis=1
+    )
 
-    # low1, mid1, high1 = id_print((low1, mid1, high1), what="disc1")
-    # low2, mid2, high2 = id_print((low2, mid2, high2), what="disc2")
+    # mu_low, lam_low, Ne1 = id_print((mu_low, lam_low, Ne1), what="{mu,lam,Ne1}_low")
+    # T_11 = jax.scipy.stats.poisson.logpmf(low2[None, :], lam_low)
+    # # low -> medium
+    # T_12 = jnp.log(jnp.diff(poisson_cdf(mid2[None, :], lam_low), axis=1))
+    # # low -> high  (improbable unless Ne is tiny)
+    # T_13 = jax.scipy.stats.poisson.logpmf(high2[None, :], lam_low)
 
-    # Low
-    # The extreme states {0,1,...,c-1} U {Ne-c+1,...,Ne} are assumed Poisson distributed.
-    # we skip the first state x=0 because it causes problems with nans.
-    mu_low = vf_sh(low1[1:, None] / Ne1, s, h)
-    T_11 = jax.scipy.stats.poisson.pmf(low2[None, :], mu_low)
-    # low -> medium
-    T_12 = jnp.diff(poisson_cdf(mid2[None, :], mu_low), axis=1)
-    # low -> high  (improbable unless Ne is tiny)
-    T_13 = jax.scipy.stats.poisson.pmf(high2[None, :], mu_low)
+    # T_11, T_12, T_13 = id_print((T_11, T_12, T_13), what="T_1X")
 
     # Medium
-    mu_mid = vf_sh((mid1[:-1, None] + mid1[1:, None]) / 2 / Ne1, s, h)
-    sd_mid = jnp.sqrt(mu_mid * (1 - mu_mid) / Ne1)
-    # Medium -> low
-    T_21 = binom_pmf(low2[None, :], Ne2, mu_mid)
+    # mu_mid = vf_sh((mid1[:-1, None] + mid1[1:, None]) / 2 / Ne1, s, h)
+    # sd_mid = jnp.sqrt(mu_mid * (1 - mu_mid) / Ne1)
+    # # Medium -> low
+    # T_21 = binom_logpmf(low2[None, :], Ne2, mu_mid)
     # Medium -> medium
-    T_22 = jnp.diff(
-        jax.scipy.stats.norm.cdf(mid2[None, :] / Ne2, loc=mu_mid, scale=sd_mid)
-    )
-    T_23 = binom_pmf(high2[None, :], Ne2, mu_mid)
-
-    # High (mirror image of low) -- skip the last state for same reason
-    mu_high = vf_sh(high1[:-1, None] / Ne1, s, h)
-    # high -> low
-    T_31 = jax.scipy.stats.poisson.pmf(low2[None, :], mu_high)
-    # high -> medium
-    T_32 = jnp.diff(poisson_cdf(mid2[None, :], mu_high), axis=1)
-    # high -> high  (improbable unless Ne is tiny)
-    T_33 = jax.scipy.stats.poisson.pmf(high2[None, :], mu_high)
-
-    T0 = jnp.block(
+    # T_22 = jnp.diff(binom_cdf_cp(mid2[None, :], Ne2, mu_mid))
+    # log(p1 - p0) = log(exp(log_p1) - exp(log_p0))
+    #              = log(exp(log_p1) [1 - exp(log_p0 - log_p1)])
+    #              = log_p1 + logexpm1(log_p1 - log_p0)
+    mu_mid = p1[L : len(p1) - L]
+    # mu_mid = id_print(mu_mid, what="mu_mid")
+    Ne2 = discr2[-1]
+    _T_22 = jnp.concatenate(
         [
-            [T_11, T_12, T_13],
-            [T_21, T_22, T_23],
-            [T_31, T_32, T_33],
-        ]
+            jnp.full_like(mu_mid[:, None], -jnp.inf),
+            binom_logcdf_cp(discr2[None, :], Ne2, mu_mid[:, None]),
+        ],
+        axis=1,
     )
+    # _T_22 = id_print(_T_22, what="T_22")
+    log_p0 = _T_22[:, :-1]
+    log_p1 = _T_22[:, 1:]
+    # log(p1 - p0) = log(exp(log_p1) - exp(log_p0)) = log_p1 + log(1-exp(log_p0 - log_p1))
+    # in some cases the camp-paulson approximation breaks down and we get log_p0>log_p1
+    # only seems to happen when both p0, p1 ~= 0. so we just truncate.
+    z = log_p1 <= log_p0
+    # also have to be careful about subtracting -inf from anything. this messes up all the grads.
+    log_p1_minus_p0 = jnp.where(
+        z, 1.0, log_p1 - jnp.where(jnp.isneginf(log_p0), log_p1, log_p0)
+    )
+    # log_p1_minus_p0, _ = id_print((log_p1_minus_p0, (log_p1, log_p0, z)), what="lp1mp0")
+    T_2 = jnp.where(
+        z,
+        -jnp.inf,
+        log_p1 + jnp.where(jnp.isneginf(log_p0), 0.0, logexpm1(log_p1_minus_p0)),
+    )
+    # T_2 = id_print(T_2, what="T_2")
+    # T_2 = jnp.zeros_like(T_2)
+
+    # T_23 = binom_logpmf(high2[None, :], Ne2, mu_mid)
+
+    # High is the mirror image of low - the ancestral allele is approximately Poisson.
+    lam_high = Ne1 * (1.0 - p1[len(p1) - L :])
+    c_pois = poisson_cdf(Ne2 - discr2[None, ::-1], lam_high[:, None])
+    # c_pois = id_print(c_pois, what="c_pois")
+    T_3 = jnp.concatenate([jnp.log(c_pois[:, :1]), safe_logdiff(c_pois, 1)], axis=1)[
+        :, ::-1
+    ]
+    T = [T_1, T_2, T_3]
+    # T = id_print(T, what="T123")
+    return jnp.concatenate(T)
+    # T_31 = jax.scipy.stats.poisson.logpmf(Ne2 - low2[None, :], lam_high)
+    # # high -> medium
+    # T_32 = jnp.log(-jnp.diff(poisson_cdf(Ne2 - mid2[None], lam_high), 1)[::-1])
+    # # high -> high  (improbable unless Ne is tiny)
+    # T_33 = jax.scipy.stats.poisson.logpmf(Ne2 - high2[None, :], lam_high)
+    # T0 = [
+    #     [T_11, T_12, T_13],
+    #     [T_21, T_22, T_23],
+    #     [T_31, T_32, T_33],
+    # ]
+    # T0 = id_print(T0, what="T0")
+    # T0 = jnp.block(T0)
     # add in the first and last states that we skipped
-    N = T0.shape[0] + 2
-    ret = jnp.concatenate([jnp.eye(1, N, 0), T0, jnp.eye(1, N, N - 1)]).astype(
-        jnp.float64
-    )
-    ret = jnp.maximum(1e-8, ret)
-    ret /= ret.sum(1, keepdims=True)
+    # N = T0.shape[0] + 2
+    # ret = jnp.concatenate(
+    #     [jnp.log(jnp.eye(1, N, 0)), T0, jnp.log(jnp.eye(1, N, N - 1))]
+    # )
+    # ret = id_print(ret, what="ret")
+    # ret = jnp.maximum(1e-8, ret)
+    # ret /= ret.sum(1, keepdims=True)
     # ret = id_print(ret, what="trans")
-    return ret
+    # return ret
 
 
-def test_trans():
-    T = trans(20, 500, 1e3, 0.01, 0.5)
-    assert np.isfinite(T).all()
-    np.testing.assert_allclose(T.sum(1), 1.0, atol=1e-4)
+# @partial(jax.jit, static_argnums=2)
+def _fb(log_T, log_B, loglik):
+    lse = jax.scipy.special.logsumexp
+    log_alpha0 = log_B[0][None]
+    log_c0 = lse(log_alpha0)
+    log_alpha0 -= log_c0
 
+    def _fwd(last_log_alpha, params):
+        assert last_log_alpha.ndim == 2
+        assert params["log_T"].ndim == 2
+        assert params["log_B"].ndim == 1
+        assert last_log_alpha.shape[0] == 1
+        assert (
+            params["log_T"].shape[0]
+            == params["log_T"].shape[1]
+            == last_log_alpha.shape[1]
+            == params["log_B"].shape[0]
+        )
+        # params = id_print(params, what="params")
+        log_alpha = (
+            log_matmul(last_log_alpha, params["log_T"]) + params["log_B"][None, :]
+        )
+        assert log_alpha.shape == last_log_alpha.shape
+        log_c = lse(log_alpha)
+        log_alpha -= log_c
+        # log_alpha, log_c = id_print((log_alpha, log_c), what="log_alpha")
+        return log_alpha, (log_alpha[0], log_c)
 
-def _scan(f, init, xs, length=None):
-    if xs is None:
-        xs = [None] * length
-    carry = init
-    ys = []
-    keys = list(xs.keys())
-    n = len(xs[keys[0]])
-    for i in range(n):
-        d = {}
-        for k in keys:
-            if isinstance(xs[k], Discretization):
-                d[k] = Discretization(xs[k].low[i], xs[k].mid[i], xs[k].high[i])
-            else:
-                d[k] = xs[k][i]
-        carry, y = f(carry, d)
-        ys.append(y)
-    return carry, jnp.stack(ys)
+    params = {"log_T": log_T, "log_B": log_B[1:]}
+    res = jax.lax.scan(_fwd, log_alpha0, params)
 
-
-@partial(jax.jit, static_argnums=1)
-def _jmp(A, k):
-    return jnp.linalg.matrix_power(A, k)
-
-
-@partial(jax.jit, static_argnums=2)
-def _fb(T, B, loglik):
-    alpha0 = B[0]
-    c0 = alpha0.sum()
-    alpha0 /= c0
-
-    def _fwd(last_alpha, params):
-        alpha = (last_alpha @ params["T"]) * params["B"]
-        c = alpha.sum()
-        alpha = alpha / c
-        if loglik:
-            return alpha, c
-        return alpha, (alpha, c)
-
-    params = {"T": T, "B": B[1:]}
-    res = jax.lax.scan(_fwd, alpha0, params)
-
+    _, (log_alpha, log_c) = res
+    log_alpha = jnp.concatenate([log_alpha0, log_alpha])
+    log_c = jnp.concatenate([log_c0[None], log_c])
+    # log_alpha, log_c = id_print((log_alpha, log_c), what="fwd")
     if loglik:
-        _, c = res
-        return jnp.log(c0) + jnp.log(c).sum()
+        return (log_alpha, log_c)
 
-    _, (alpha, c) = res
-    alpha = jnp.concatenate([alpha0[None], alpha])
-
-    beta0 = jnp.ones_like(alpha0)
+    log_beta0 = jnp.zeros_like(log_alpha0).T
     # backward pass
-    def _bwd(last_beta, params):
-        beta = params["T"] @ (last_beta * params["B"]) / params["c"]
-        return (beta,) * 2
+    def _bwd(last_log_beta, params):
+        assert last_log_beta.ndim == 2
+        assert params["log_T"].ndim == 2
+        assert params["log_B"].ndim == 1
+        assert params["log_c"].ndim == 0
+        assert last_log_beta.shape[1] == 1
+        assert (
+            params["log_T"].shape[0]
+            == params["log_T"].shape[1]
+            == last_log_beta.shape[0]
+            == params["log_B"].shape[0]
+        )
+        # params = id_print(params, what="params")
+        log_beta = (
+            log_matmul(params["log_T"], last_log_beta + params["log_B"][:, None])
+            - params["log_c"]
+        )
+        # log_beta = id_print(log_beta, what="log_beta")
+        return (log_beta, log_beta[:, 0])
 
-    params["c"] = c
-    _, beta = jax.lax.scan(_bwd, beta0, params, reverse=True)
-    beta = jnp.concatenate([beta, beta0[None]])
-    gamma = alpha * beta
-    return gamma
+    params["log_c"] = log_c[:-1]
+    _, log_beta = jax.lax.scan(_bwd, log_beta0, params, reverse=True)
+    log_beta = jnp.concatenate([log_beta, log_beta0.T])
+    log_gamma = log_alpha + log_beta
+    return log_gamma
 
 
 def forward_backward(
-    times: Tuple[int, ...],
     s: np.ndarray,
     h: np.ndarray,
+    times: Tuple[int, ...],
     Ne: Tuple[int, ...],
     obs: np.ndarray,
     M: int = 100,
-    d: int = 20,
-    only_loglik: bool = False,
+    forward_only: bool = False,
 ) -> Union[float, Tuple[np.ndarray, Discretization]]:
     """likelihood of allele frequency trajectory with selection.
 
@@ -177,7 +256,7 @@ def forward_backward(
         M: discretization parameter -- state space will be discretized into this many bins.
         d: Endpoint discretization -- the first and last d bins will correspond to the discrete bins
             {0, ..., d - 1} and {Ne - d + 1, ..., Ne}. (Setting d=0 disables this.)
-        only_loglik: If true, only compute the log likelihood. Otherwise, compute the full posterior decoding.
+        forward_only: If true, only compute the log likelihood. Otherwise, compute the full posterior decoding.
 
     Returns:
         If only_loglik = True, return the log likelihood. Otherwise, return the posterior decoding matrix.
@@ -199,17 +278,102 @@ def forward_backward(
     T = len(times)
     assert T == len(Ne) == len(obs)
     assert T - 1 == len(s) == len(h)
-    Ne = jnp.array(Ne)
+    ub = 1 + int(np.log2(max(times)))
+    dt = -np.diff(times)  # number of generations between observations
 
-    dt = -np.diff(times)
-    discr = jax.vmap(Discretization.factory, in_axes=(None, None, 0))(M, d, Ne)
-    B = jax.vmap(lambda disc, ob: binom_pmf(ob[1], ob[0], disc.p), in_axes=(0, 0))(
-        discr, obs
+    # Our discretization is fixed to M hidden states but can be different depending on whether
+    # Ne is small or large. If Ne <= M then we simply simulate the exact W-F model on floor(Ne) individuals.
+    # If Ne exceeds M then we use some approximations (see log_trans()).
+    # The reason for keeping the discretization size constant is that then we can use jax.vmap. This is more
+    # efficient than using Python loops, which get statically unrolled during jit.
+    # (However it can be inefficient if Ne << M.)
+
+    # construct log-spaced intervals from 1, ..., Ne/2 and then reflect. Special cases needed depending
+    # on whether M is even or odd.
+    R_disc = 1.0 * np.arange(M)
+
+    def discr_range(Ne):
+        odd = 1 - M % 2
+        half = jnp.concatenate([jnp.zeros(1), jnp.geomspace(1, Ne / 2, M // 2)])[
+            : -odd or None
+        ]
+        R_log = jnp.concatenate([half, Ne - half[-(2 - odd) :: -1]])
+        assert len(R_log) == M
+        # R_log, _ = id_print((R_log, Ne), what="discr_range")
+        return R_log
+
+    def discr_exact(Ne):
+        ret = jnp.maximum(0, R_disc - (M - Ne))
+        # ret = id_print(ret, what="discr_exact")
+        return ret
+
+    def make_trans(d):
+        # d = id_print(d, what="d")
+        d1, log_T0 = jax.lax.cond(
+            d["Ne1"] <= M,
+            lambda e: (
+                e["exact"],
+                log_trans_exact(d["s"], d["h"], e["exact"], e["exact"]),
+            ),
+            lambda e: (
+                e["range"],
+                log_trans_discr(d["s"], d["h"], e["range"], e["range"]),
+            ),
+            {"exact": discr_exact(d["Ne1"]), "range": discr_range(d["Ne2"])},
+        )
+        # _, log_T0 = id_print((d1, log_T0), what="(d1,log_T0")
+        log_T1 = jax.lax.cond(
+            d["Ne2"] <= M,
+            lambda d1: log_trans_exact(d["s"], d["h"], d1, discr_exact(d["Ne2"])),
+            lambda d1: log_trans_discr(d["s"], d["h"], d1, discr_range(d["Ne2"])),
+            d1,
+        )
+        log_T0_t = log_matpow_ub(log_T0, d["t"] - 1, ub)
+        trans = log_matmul(log_T0_t, log_T1)
+        return trans
+
+    # log_T = jnp.zeros([len(s), M, M])
+    # for i in range(len(s)):
+    #     log_T = jax.ops.index_update(
+    #         log_T,
+    #         i,
+    #         make_trans(
+    #             {"s": s[i], "h": h[i], "Ne1": Ne[i], "Ne2": Ne[i + 1], "t": dt[i]}
+    #         ),
+    #     )
+    #
+    log_T = jax.lax.map(
+        make_trans, {"s": s, "h": h, "Ne1": Ne[:-1], "Ne2": Ne[1:], "t": dt}
     )
-    T0 = jax.vmap(trans)(discr.head, discr.head, s, h)
-    T1 = jax.vmap(trans)(discr.head, discr.tail, s, h)
-    T = jnp.array([_jmp(T0i, dti - 1) @ T1i for T0i, T1i, dti in zip(T0, T1, dt)])
-    res = _fb(T, B, only_loglik)
-    if only_loglik:
-        return res
-    return np.asarray(res), discr
+
+    def make_obs(d):
+        discr = jax.lax.cond(
+            d["Ne"] <= M,
+            lambda e: e["exact"],
+            lambda e: e["range"],
+            {"exact": discr_exact(d["Ne"]), "range": discr_range(d["Ne"])},
+        )
+        return binom_logpmf(d["obs"][1], d["obs"][0], discr / d["Ne"])
+
+    log_B = jax.lax.map(make_obs, {"Ne": Ne, "obs": obs})
+
+    # log_T = id_print(log_T, what="log_T")
+    # log_B = id_print(log_B, what="log_B")
+
+    # for Ne, dt, ob in zip(zip(Ne[:-1], Ne[1:]), -np.diff(times), obs):
+    #     discr0 = Discretization.factory(M, d, Ne[0])
+    #     x = np.linspace(0, 1, Ne[0])
+    #     if isinstance(Ne[0], int):
+    #         # exact transition up to time t - 1
+    #         log_T0 = log_trans_exact(s, h, x, Ne[0])
+    #     else:
+    #         log_T0 = log_trans(discr0, s, h)
+    #     log_T0_t = log_matpow(log_T0, dt - 1)
+    #     if isinstance(Ne[1], int):
+    #         log_T1 = log_trans_exact(s, h, x, Ne[1])
+    #     else:
+    #         discr1 = Discretization.factory(M, d, Ne[1])
+    #         log_T1 = log_trans(discr0, discr1, s, h)
+    #     log_T.append(log_matmul(log_T0_t, log_T1))
+    #     log_B.append(binom_logpmf(ob[1], ob[0], discr1.p))
+    return _fb(log_T, log_B, forward_only)
