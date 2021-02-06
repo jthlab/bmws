@@ -48,10 +48,10 @@ def test_log_matmul():
 
 
 def test_log_matmul_eye():
-    A = log_A = jnp.log(np.random.rand(8, 8) ** 2)
-    B = jnp.eye(A.shape[0])
-    log_C = log_matmul(np.log(A), np.log(B))
-    np.testing.assert_allclose(np.log(A), log_C)
+    log_A = jnp.log(np.random.rand(8, 8) ** 2)
+    B = jnp.eye(log_A.shape[0])
+    log_C = log_matmul(log_A, np.log(B))
+    np.testing.assert_allclose(log_A, log_C)
 
 
 def test_log_matpow2():
@@ -87,9 +87,9 @@ def test_log_matpow_grad():
     assert np.isfinite(g).all()
 
 
-@pytest.mark.parametrize("n", range(11))
-def test_log_matpow_ub(n):
-    log_A = np.random.exponential(size=(2, 2))
+@pytest.mark.parametrize("n", range(1, 11))
+def test_log_matpow_ub(rng: np.random.Generator, n):
+    log_A = rng.exponential(size=(n, n))
     log_B1 = log_matpow(log_A, n)
     log_B2 = log_matpow_ub(log_A, n, 1 + int(np.log2(max(1, n))))
     np.testing.assert_allclose(log_B1, log_B2, rtol=1e-4)

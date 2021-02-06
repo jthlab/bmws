@@ -31,7 +31,7 @@ def test_make_discretization_d0():
 
 
 def test_basic_scenario():
-    res = sim_and_fit(mdls[0], seed=1, lam_=1.0, d=50, M=50)
+    sim_and_fit(mdls[0], seed=1, lam_=1.0, M=100)
 
 
 def test_posterior(rng):

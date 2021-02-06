@@ -164,7 +164,7 @@ class PosteriorDecoding:
 
     gamma: np.ndarray
     t: np.ndarray
-    discretizations: List[Discretization]
+    hidden_states: List[np.ndarray]
 
     def draw(self, ax=None, k=10_000) -> "matplotlib.Axis":
         if ax is None:

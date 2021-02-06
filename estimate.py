@@ -18,12 +18,12 @@ import logging
 logger = logging.getLogger(__name__)
 
 
-@partial(jax.jit, static_argnums=(2, 3, 5, 6))
+@partial(jax.jit, static_argnums=(2, 5, 6))
 @jax.value_and_grad
-def obj(x_s, h, times, Ne, obs, d, M, lam_):
+def obj(x_s, h, times, Ne, obs, M, lam_):
     s = xform(x_s)
     return (
-        -forward_backward(times, s, h, Ne, obs, d, M, True)
+        -forward_backward(s, h, times, Ne, obs, M, True)["log_c"].sum()
         + lam_ * (jnp.diff(s) ** 2).sum()
     )
 
@@ -32,7 +32,6 @@ def estimate(
     data: List[Observation],
     h: float = 0.5,
     lam_: float = 1.0,
-    d: int = 100,
     M: int = 100,
     ell1: bool = False,
 ):
@@ -40,21 +39,16 @@ def estimate(
     Ne, obs, times = _prep_data(data)
     T = len(times)
     x0 = np.zeros(T - 1)
-    args = (
-        np.full_like(x0, h),
-        times,
-        Ne,
-        obs,
-        d,  # d
-        M,  # M
-    )
+    args = (np.full_like(x0, h), times, Ne, obs, M)  # M
+    kwargs = {}
     if ell1:
         optimizer = fusedlasso
         args += (0.0,)
         options = {"lam": lam_}
     else:
-        optimizer = "BFGS"
+        optimizer = "L-BFGS-B"
         args += (lam_,)
+        kwargs["bounds"] = [[-0.2, 0.2]] * len(x0)
     options = {}
     i = 0
 
@@ -64,10 +58,10 @@ def estimate(
         ret = obj(x, *args)
         logger.debug("i=%d x=%s ret=%s", i, x, ret)
         i += 1
-        return ret
+        return tuple(np.array(x, dtype=np.float64) for x in ret)
 
     res = scipy.optimize.minimize(
-        shim, x0, jac=True, args=args, method=optimizer, options=options
+        shim, x0, jac=True, args=args, method=optimizer, options=options, **kwargs
     )
     logger.debug("Optimization result: %s", res)
     return {"t": times, "s": xform(res.x), "obs": obs}
@@ -77,10 +71,10 @@ def _prep_data(data):
     times, Ne, obs = zip(
         *sorted([(ob.t, ob.Ne, (ob.sample_size, ob.num_derived)) for ob in data])[::-1]
     )
-    obs = np.array(obs)
     if len(times) != len(set(times)):
         raise ValueError("times should be distinct")
-    return Ne, obs, times
+    obs = np.array(obs)
+    return np.array(Ne), obs, times
 
 
 def posterior_decoding(
@@ -104,11 +98,9 @@ def posterior_decoding(
     """
     Ne, obs, times = _prep_data(data)
     assert len(times) == len(s) + 1 == len(h) + 1
-    gamma, discr = forward_backward(
-        times, np.array(s), np.array(h), Ne, obs, M, d, False
+    log_gamma, discr = forward_backward(
+        np.array(s), np.array(h), times, Ne, obs, M, False
     )
-    assert np.allclose(gamma.sum(1), 1.0, atol=1e-4)
-    G = gamma / gamma.sum(
-        1, keepdims=True
-    )  # numerical error may cause columns to not quite sum to one.
-    return PosteriorDecoding(t=times, gamma=G, discretizations=discr.untree())
+    return PosteriorDecoding(
+        t=times, gamma=jnp.exp(log_gamma), discretizations=discr.untree()
+    )

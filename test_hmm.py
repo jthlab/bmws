@@ -41,7 +41,7 @@ def test_fb_variable_Ne():
     obs = np.transpose([n, derived])
     obs[-1][:] = 10
     M = 21
-    log_gamma = forward_backward(s, h, times, Ne, obs, M, False)
+    log_gamma = forward_backward(s, h, times, Ne, obs, M, False)["log_gamma"]
     np.testing.assert_allclose(logsumexp(log_gamma, 1), 0.0, atol=1e-4)
     np.testing.assert_allclose(logsumexp(log_gamma), np.log(T), atol=1e-4)
 

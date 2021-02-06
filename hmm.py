@@ -82,25 +82,6 @@ def log_trans_discr(s: float, h: float, discr1, discr2) -> np.ndarray:
         [jnp.log(c_pois[:, :1]), safe_logdiff(c_pois, axis=1)], axis=1
     )
 
-    # mu_low, lam_low, Ne1 = id_print((mu_low, lam_low, Ne1), what="{mu,lam,Ne1}_low")
-    # T_11 = jax.scipy.stats.poisson.logpmf(low2[None, :], lam_low)
-    # # low -> medium
-    # T_12 = jnp.log(jnp.diff(poisson_cdf(mid2[None, :], lam_low), axis=1))
-    # # low -> high  (improbable unless Ne is tiny)
-    # T_13 = jax.scipy.stats.poisson.logpmf(high2[None, :], lam_low)
-
-    # T_11, T_12, T_13 = id_print((T_11, T_12, T_13), what="T_1X")
-
-    # Medium
-    # mu_mid = vf_sh((mid1[:-1, None] + mid1[1:, None]) / 2 / Ne1, s, h)
-    # sd_mid = jnp.sqrt(mu_mid * (1 - mu_mid) / Ne1)
-    # # Medium -> low
-    # T_21 = binom_logpmf(low2[None, :], Ne2, mu_mid)
-    # Medium -> medium
-    # T_22 = jnp.diff(binom_cdf_cp(mid2[None, :], Ne2, mu_mid))
-    # log(p1 - p0) = log(exp(log_p1) - exp(log_p0))
-    #              = log(exp(log_p1) [1 - exp(log_p0 - log_p1)])
-    #              = log_p1 + logexpm1(log_p1 - log_p0)
     mu_mid = p1[L : len(p1) - L]
     # mu_mid = id_print(mu_mid, what="mu_mid")
     Ne2 = discr2[-1]
@@ -128,10 +109,6 @@ def log_trans_discr(s: float, h: float, discr1, discr2) -> np.ndarray:
         -jnp.inf,
         log_p1 + jnp.where(jnp.isneginf(log_p0), 0.0, logexpm1(log_p1_minus_p0)),
     )
-    # T_2 = id_print(T_2, what="T_2")
-    # T_2 = jnp.zeros_like(T_2)
-
-    # T_23 = binom_logpmf(high2[None, :], Ne2, mu_mid)
 
     # High is the mirror image of low - the ancestral allele is approximately Poisson.
     lam_high = Ne1 * (1.0 - p1[len(p1) - L :])
@@ -143,28 +120,6 @@ def log_trans_discr(s: float, h: float, discr1, discr2) -> np.ndarray:
     T = [T_1, T_2, T_3]
     # T = id_print(T, what="T123")
     return jnp.concatenate(T)
-    # T_31 = jax.scipy.stats.poisson.logpmf(Ne2 - low2[None, :], lam_high)
-    # # high -> medium
-    # T_32 = jnp.log(-jnp.diff(poisson_cdf(Ne2 - mid2[None], lam_high), 1)[::-1])
-    # # high -> high  (improbable unless Ne is tiny)
-    # T_33 = jax.scipy.stats.poisson.logpmf(Ne2 - high2[None, :], lam_high)
-    # T0 = [
-    #     [T_11, T_12, T_13],
-    #     [T_21, T_22, T_23],
-    #     [T_31, T_32, T_33],
-    # ]
-    # T0 = id_print(T0, what="T0")
-    # T0 = jnp.block(T0)
-    # add in the first and last states that we skipped
-    # N = T0.shape[0] + 2
-    # ret = jnp.concatenate(
-    #     [jnp.log(jnp.eye(1, N, 0)), T0, jnp.log(jnp.eye(1, N, N - 1))]
-    # )
-    # ret = id_print(ret, what="ret")
-    # ret = jnp.maximum(1e-8, ret)
-    # ret /= ret.sum(1, keepdims=True)
-    # ret = id_print(ret, what="trans")
-    # return ret
 
 
 # @partial(jax.jit, static_argnums=2)
@@ -203,7 +158,7 @@ def _fb(log_T, log_B, loglik):
     log_c = jnp.concatenate([log_c0[None], log_c])
     # log_alpha, log_c = id_print((log_alpha, log_c), what="fwd")
     if loglik:
-        return (log_alpha, log_c)
+        return {"log_alpha": log_alpha, "log_c": log_c}
 
     log_beta0 = jnp.zeros_like(log_alpha0).T
     # backward pass
@@ -222,16 +177,15 @@ def _fb(log_T, log_B, loglik):
         # params = id_print(params, what="params")
         log_beta = (
             log_matmul(params["log_T"], last_log_beta + params["log_B"][:, None])
-            - params["log_c"]
-        )
+        ) - params["log_c"]
         # log_beta = id_print(log_beta, what="log_beta")
         return (log_beta, log_beta[:, 0])
 
-    params["log_c"] = log_c[:-1]
+    params["log_c"] = log_c[1:]
     _, log_beta = jax.lax.scan(_bwd, log_beta0, params, reverse=True)
     log_beta = jnp.concatenate([log_beta, log_beta0.T])
     log_gamma = log_alpha + log_beta
-    return log_gamma
+    return {"log_gamma": log_gamma}
 
 
 def forward_backward(
@@ -330,19 +284,12 @@ def forward_backward(
         )
         log_T0_t = log_matpow_ub(log_T0, d["t"] - 1, ub)
         trans = log_matmul(log_T0_t, log_T1)
-        return trans
+        # trans, _ = id_print(
+        #     (trans, jax.scipy.special.logsumexp(trans, 1)), what="lse(trans)"
+        # )
+        return trans, d1
 
-    # log_T = jnp.zeros([len(s), M, M])
-    # for i in range(len(s)):
-    #     log_T = jax.ops.index_update(
-    #         log_T,
-    #         i,
-    #         make_trans(
-    #             {"s": s[i], "h": h[i], "Ne1": Ne[i], "Ne2": Ne[i + 1], "t": dt[i]}
-    #         ),
-    #     )
-    #
-    log_T = jax.lax.map(
+    log_T, discr = jax.lax.map(
         make_trans, {"s": s, "h": h, "Ne1": Ne[:-1], "Ne2": Ne[1:], "t": dt}
     )
 
@@ -359,21 +306,29 @@ def forward_backward(
 
     # log_T = id_print(log_T, what="log_T")
     # log_B = id_print(log_B, what="log_B")
+    ret = _fb(log_T, log_B, forward_only)
+    ret.update(
+        {
+            "log_T": log_T,
+            "hidden_states": discr,
+        }
+    )
+    return ret
 
-    # for Ne, dt, ob in zip(zip(Ne[:-1], Ne[1:]), -np.diff(times), obs):
-    #     discr0 = Discretization.factory(M, d, Ne[0])
-    #     x = np.linspace(0, 1, Ne[0])
-    #     if isinstance(Ne[0], int):
-    #         # exact transition up to time t - 1
-    #         log_T0 = log_trans_exact(s, h, x, Ne[0])
-    #     else:
-    #         log_T0 = log_trans(discr0, s, h)
-    #     log_T0_t = log_matpow(log_T0, dt - 1)
-    #     if isinstance(Ne[1], int):
-    #         log_T1 = log_trans_exact(s, h, x, Ne[1])
-    #     else:
-    #         discr1 = Discretization.factory(M, d, Ne[1])
-    #         log_T1 = log_trans(discr0, discr1, s, h)
-    #     log_T.append(log_matmul(log_T0_t, log_T1))
-    #     log_B.append(binom_logpmf(ob[1], ob[0], discr1.p))
-    return _fb(log_T, log_B, forward_only)
+
+def stochastic_traceback(log_alpha, log_T, seed):
+    def _f(carry, d):
+        key, subkey = jax.random.split(carry["key"])
+        log_p = d["log_T"][:, carry["x_last"]] + d["log_alpha"]
+        x = jax.random.categorical(subkey, log_p)
+        return {"key": key, "x_last": x}
+
+    key, subkey = jax.random.split(jax.random.PRNGKey(seed))
+    x0 = jax.random.categorical(subkey, log_alpha[-1])
+    _, x = jax.lax.scan(
+        _f,
+        {"key": subkey, "x_last": x0},
+        {"log_alpha": log_alpha[:-1], "log_T": log_T},
+        reverse=True,
+    )
+    return jnp.concatenate([x, x0[None]])
