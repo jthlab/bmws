@@ -1,4 +1,5 @@
 #!/usr/bin/env python
+import logging
 from functools import partial
 from typing import List
 
@@ -8,11 +9,9 @@ import numpy as np
 import scipy.optimize
 import scipy.stats
 
-from common import xform, Observation, PosteriorDecoding
+from common import Observation, PosteriorDecoding
 from fusedlasso import fusedlasso
 from hmm import forward_backward, stochastic_traceback
-
-import logging
 
 logger = logging.getLogger(__name__)
 
@@ -90,7 +89,6 @@ def sample_paths(
         res["alpha"], res["T"], seed
     )
     return jnp.take_along_axis(res["hidden_states"].T, paths, axis=0) / res["Ne"][None]
-    # times = jax.vmap(jnp.take_along_axis(res["hidden_states"], paths, axis)
 
 
 def posterior_decoding(

@@ -8,6 +8,7 @@
 
 import numpy as np
 
+
 cdef extern:
     void prox_dp(int, double*, double, double*) nogil
 

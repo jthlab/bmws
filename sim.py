@@ -1,8 +1,8 @@
-from typing import Union, Dict
+from typing import Dict, Union
 
 import numpy as np
 
-from common import f_sh, Observation
+from common import Observation, f_sh
 from estimate import estimate
 
 

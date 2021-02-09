@@ -1,4 +1,4 @@
-from common import Observation, Discretization
+from common import Observation
 from estimate import posterior_decoding, sample_paths
 
 mdls = [
@@ -8,26 +8,17 @@ mdls = [
     {"s": (([0.02] * 40 + [-0.02] * 40) * 3)[:200], "h": [0.5] * 200, "f0": 0.5},
 ]
 
+import logging
+
 import numpy as np
 import pytest
 
 from sim import sim_and_fit, sim_wf
 
-import logging
-
-logging.getLogger("absl").setLevel(logging.DEBUG)
-logging.getLogger().setLevel(logging.DEBUG)
-
 
 @pytest.fixture
 def rng():
     return np.random.default_rng()
-
-
-def test_make_discretization_d0():
-    mi = Discretization.factory(64, 0, int(1e3))
-    assert len(mi.low) == len(mi.low) == 0
-    assert len(mi.mid) == 64
 
 
 def test_basic_scenario():

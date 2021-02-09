@@ -8,8 +8,6 @@ from jax.scipy.special import digamma, gammaln, xlog1py, xlogy
 # https://github.com/canerturkmen/betaincder/blob/master/betaincder/c/beta.c
 
 
-
-
 def dj(a, b, x, m):
     m_even = m // 2
     m_odd = (m - 1) // 2
