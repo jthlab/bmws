@@ -85,10 +85,9 @@ def test_trans_infinite():
 
 
 def test_exact_trans(M):
-    d1 = jnp.linspace(0, 2 * M, M)
-    d2 = jnp.arange(M)
+    d1 = jnp.arange(2 * M + 1)
+    d2 = jnp.arange(M + 1)
     s = 0.1
-    h = 0.5
-    T = trans_exact(s, 2 * M, d1, M, d2)
-    assert T.shape == (2 * M, M)
+    T = trans_exact(s, d1, 2 * M, d2, M)
+    assert T.shape == (2 * M + 1, M + 1)
     np.testing.assert_allclose(1.0, T.sum(1), atol=1e-4)

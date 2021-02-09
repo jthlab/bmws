@@ -24,21 +24,21 @@ def f_sh(x: float, s: float, h: float) -> float:
 @jnp.vectorize
 def binom_logpmf(k, n, p):
     kbad = (k < 0) | (k > n)
-    k1 = jnp.where(kbad, 0, k)
-    p01 = (p == 0) | (p == 1)
-    p1 = jnp.where(p01, 0.5, p)
+    kf = jnp.where(kbad, 0, k)
+    p0, p1 = [jnp.isclose(p, x) for x in (0.0, 1.0)]
+    pf = jnp.where(p0 | p1, 0.5, p)
     ret = (
         gammaln(1 + n)
-        - gammaln(1 + k1)
-        - gammaln(n - k1 + 1)
-        + xlogy(k, p1)
-        + xlog1py(n - k, -p1)
+        - gammaln(1 + kf)
+        - gammaln(n - kf + 1)
+        + xlogy(k, pf)
+        + xlog1py(n - k, -pf)
     )
     ret = jnp.where(kbad, -jnp.inf, ret)
-    ret = jnp.where((p == 0) & (k == 0), 0.0, ret)
-    ret = jnp.where((p == 0) & (k != 0), -jnp.inf, ret)
-    ret = jnp.where((p == 1) & (k == n), 0.0, ret)
-    ret = jnp.where((p == 1) & (k != n), -jnp.inf, ret)
+    ret = jnp.where(p0 & (k == 0), 0.0, ret)
+    ret = jnp.where(p0 & (k != 0), -jnp.inf, ret)
+    ret = jnp.where(p1 & (k == n), 0.0, ret)
+    ret = jnp.where(p1 & (k != n), -jnp.inf, ret)
     return ret
 
 
