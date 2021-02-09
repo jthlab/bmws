@@ -1,8 +1,7 @@
 import dataclasses
 import functools
 from dataclasses import dataclass
-from functools import partial
-from typing import List, Callable, Tuple
+from typing import List, Callable, Tuple, Dict, Union
 import numpy as np
 
 from jax import numpy as jnp
@@ -42,15 +41,24 @@ def poisson_cdf(k, mu):
     return jnp.where(mu0, k >= 0, gammaincc(jnp.floor(k + 1), mu1))
 
 
+@jnp.vectorize
 def binom_logpmf(k, n, p):
+    kbad = (k < 0) | (k > n)
+    k1 = jnp.where(kbad, 0, k)
+    p01 = (p == 0) | (p == 1)
+    p1 = jnp.where(p01, 0.5, p)
     ret = (
         gammaln(1 + n)
-        - gammaln(1 + k)
-        - gammaln(n - k + 1)
-        + xlogy(k, p)
-        + xlog1py(n - k, -p)
+        - gammaln(1 + k1)
+        - gammaln(n - k1 + 1)
+        + xlogy(k, p1)
+        + xlog1py(n - k, -p1)
     )
-    # ret = id_print(ret, what="binom_pmf")
+    ret = jnp.where(kbad, -jnp.inf, ret)
+    ret = jnp.where((p == 0) & (k == 0), 0.0, ret)
+    ret = jnp.where((p == 0) & (k != 0), -jnp.inf, ret)
+    ret = jnp.where((p == 1) & (k == n), 0.0, ret)
+    ret = jnp.where((p == 1) & (k != n), -jnp.inf, ret)
     return ret
 
 
@@ -71,19 +79,20 @@ def binom_logcdf_cp(k, n, p):
     # lots of problems with gradient NaNs when working in log probability space:
     # we have to be extra careful to never take log(x) when x=0 is a computed
     # quantity. thus, many contortions using the where-where trick:
-    large = z > 10
-    r1 = jnp.where(large, 0.0, jax.scipy.stats.norm.logcdf(jnp.where(large, 0.0, z)))
-    small = z < 10
-    r2 = jnp.where(
-        small, -jnp.inf, jax.scipy.stats.norm.logcdf(jnp.where(small, 0.0, z))
+    C = 1e5
+    safe_logcdf = piecewise_safe(
+        {
+            (-np.inf, -C): -np.inf,
+            (-C, C): jax.scipy.stats.norm.logcdf,
+            (C, np.inf): 0.0,
+        },
     )
 
-    # r1 = jax.scipy.stats.norm.logcdf((c - mu) / sigma)
-    # r2 = id_print(r2, what="r2")
-    # # fix up edge cases
-    r3 = jnp.where(k == n, 0.0, r1)
-    r4 = jnp.where(k == 0, xlog1py(n, -p), r3)
-    return r4
+    r1 = safe_logcdf(z)
+    # fix up edge cases
+    r2 = jnp.where(k == n, 0.0, r1)
+    r3 = jnp.where(k == 0, xlog1py(n, -p), r2)
+    return r3
 
 
 def safe_logdiff(A, axis):
@@ -91,7 +100,35 @@ def safe_logdiff(A, axis):
     # (the problem being when A[i]=A[i+1]
     D = jnp.diff(A, axis=axis)
     E = jnp.where(D == 0.0, 1.0, D)
-    return jnp.where(E, -jnp.inf, jnp.log(E))
+    return jnp.where(D == 0.0, -jnp.inf, jnp.log(E))
+
+
+def solve_tdma(A, d):
+    # solve A x = d where A is tridiagonal (not checked!)
+    a, b, c = [jnp.diag(A, k) for k in [-1, 0, 1]]
+
+    w0 = c[0] / b[0]
+    _, w = jax.lax.scan(
+        lambda w1, abc: (abc[2] / (abc[1] - abc[0] * w1),) * 2,
+        w0,
+        (a[:-1], b[1:-1], c[1:]),
+    )
+    w = jnp.concatenate([w0[None], w])
+
+    g0 = d[0] / b[0]
+    _, g = jax.lax.scan(
+        lambda g1, abdw: ((abdw[2] - abdw[0] * g1) / (abdw[1] - abdw[0] * abdw[3]),)
+        * 2,
+        g0,
+        (a, b[1:], d[1:], w),
+    )
+    g = jnp.concatenate([g0[None], g])
+
+    pn = g[-1]
+    _, p = jax.lax.scan(
+        lambda p1, gw: (gw[0] - gw[1] * p1,) * 2, pn, (g[:-1], w), reverse=True
+    )
+    return jnp.concatenate([p, pn[None]])
 
 
 @dataclass(frozen=True)
@@ -165,16 +202,19 @@ class PosteriorDecoding:
     gamma: np.ndarray
     t: np.ndarray
     hidden_states: List[np.ndarray]
+    Ne: np.ndarray
+    # log_T: np.ndarray
+    # log_B: np.ndarray
 
-    def draw(self, ax=None, k=10_000) -> "matplotlib.Axis":
+    def draw(self, ax=None, k=10_000, seed: int = 1) -> "matplotlib.Axis":
         if ax is None:
             import matplotlib.pyplot as plt
 
             ax = plt.gca()
 
-        rng = np.random.default_rng(1)
+        rng = np.random.default_rng(seed)
         S = self.sample(k, rng)
-        ax.plot(self.t, S.mean(axis=1))  # means
+        # ax.plot(self.t, S.mean(axis=1))  # means
         ax.boxplot(S.T, positions=self.t, widths=2, sym="")
         return ax
 
@@ -193,9 +233,9 @@ class PosteriorDecoding:
         if rng is None:
             rng = np.random.default_rng()
         ret = np.zeros([len(self.t), k])
-        for i, (d, p) in enumerate(zip(self.discretizations, self.gamma)):
-            n = rng.choice(len(d.U[:-1]), size=k, replace=True, p=p)
-            ret[i] = rng.integers(np.ceil(d.U[n]), np.floor(d.U[n + 1])) / d.Ne
+        for i, (hs, p, Ne) in enumerate(zip(self.hidden_states, self.gamma, self.Ne)):
+            n = rng.choice(len(hs), size=k, replace=True, p=p)
+            ret[i] = hs[n] / Ne
         return ret
 
 
@@ -251,7 +291,8 @@ def _scan(f, init, xs, length=None):
 
 
 def piecewise_safe(
-    interval_fns: List[Tuple[Tuple, Callable]], safe_val: float = 1.0
+    interval_fns: Dict[Tuple[float, float], Union[Callable[[float], float], float]],
+    safe_val: float = 1.0,
 ) -> Callable:
     """Evaluate a piecewise-defined function such that each piece is only evaluated on its corresponding interval.
     Outside of that interval, the function is evaluated at safeval. This is useful for preventing NaN issues,
@@ -267,7 +308,7 @@ def piecewise_safe(
         A function which evaluates according to the rules specified above.
     """
     # use the "where-where" trick to restrict evaluation on each piece.
-    intervals, fns = zip(*interval_fns)
+    intervals, fns = zip(*interval_fns.items())
 
     def ret(x):
         safe = [(a <= x) & (x < b) for a, b in intervals]
@@ -275,7 +316,12 @@ def piecewise_safe(
         def _g(accum, tup):
             s, f = tup
             x_s = jnp.where(s, x, safe_val)
-            return jnp.where(s, f(x_s), accum)
+            if callable(f):
+                f_xs = f(x_s)
+            else:
+                assert isinstance(f, float)
+                f_xs = jnp.full_like(x_s, f)
+            return jnp.where(s, f_xs, accum)
 
         return functools.reduce(_g, zip(safe, fns), jnp.full_like(x, safe_val))
 
@@ -286,12 +332,12 @@ def logexpm1(a):
     # a = id_print(a, what="a")
     # several cases to consider for numerical stability
     f_safe = piecewise_safe(
-        [
-            ((-np.inf, 1e-20), lambda _: -np.inf),
-            ((1e-20, 1e-8), lambda x: jnp.log(x) - x / 2.0),
-            ((1e-8, np.log(2.0)), lambda x: jnp.log(-jnp.expm1(-x))),
-            ((np.log(2.0), np.inf), lambda x: jnp.log1p(-jnp.exp(-x))),
-        ]
+        {
+            (-np.inf, 1e-100): -np.inf,
+            (1e-100, 1e-8): lambda x: jnp.log(x - x / 2.0),
+            (1e-8, np.log(2.0)): lambda x: jnp.log(-jnp.expm1(-x)),
+            (np.log(2.0), np.inf): lambda x: jnp.log1p(-jnp.exp(-x)),
+        },
     )
     return f_safe(a)
 
@@ -327,6 +373,32 @@ def log_matpow(log_A, n):
     if n % 2 == 0:
         return U
     return log_matmul(U, log_A)
+
+
+def matpow_ub(A, n, ub):
+    def _f(d, _):
+        d1 = jax.lax.cond(
+            d["n"] % 2 == 1,
+            lambda e: e | {"pow": e["pow"] @ e["x"]},
+            lambda e: e,
+            d,
+        )
+        d1["n"] >>= 1
+        # d1 = id_print(d1, what="d2")
+        d2 = jax.lax.cond(
+            d1["n"] > 0,
+            lambda e: e | {"x": e["x"] @ e["x"]},
+            lambda e: e,
+            d1,
+        )
+        # d2 = id_print(d2, what="d2")
+        return d2, None
+
+    init = {"pow": np.eye(A.shape[0]), "x": A, "n": n}
+    # init = id_print(init, what="init")
+    ret = jax.lax.scan(_f, init, None, length=ub)[0]
+    # ret = id_print(ret, what="ret")
+    return ret["pow"]
 
 
 def log_matpow_ub(log_A, n, ub):

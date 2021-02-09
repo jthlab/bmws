@@ -7,7 +7,7 @@ import pytest
 from scipy.special import logsumexp
 
 from common import log_matpow
-from hmm import forward_backward, log_trans_exact, log_trans_discr
+from hmm import forward_backward, trans_diffusion, trans_infinite
 
 # testing
 
@@ -47,33 +47,55 @@ def test_fb_variable_Ne():
 
 
 def test_grad():
-    times = tuple(range(0, 200, 31))[::-1]
+    Ne = np.array([1000.0, 50.0, 50.0, 1000.0, 1000.0])  # FIXME edge case where Ne == M
+    # Ne[:] = 10.0
+    times = tuple(np.arange(len(Ne)) * 10)[::-1]
     T = len(times)
     s = np.zeros(T - 1) + 0.01
     h = np.zeros_like(s) + 0.01
-    Ne = np.array([1000.0, 50.0] * T)[:T]  # FIXME edge case where Ne == M
     n = np.random.randint(2, 20, size=T)
     derived = np.random.randint(0, n, size=T)
     obs = np.transpose([n, derived])
-    M = 5
+    M = 100
 
     args = (h, times, Ne, obs, M, True)
-    fj = jax.jit(forward_backward, static_argnums=(2, 5, 6))
-    assert np.isfinite(fj(s, *args)).all()
-    fj_grad = jax.jit(
-        jax.grad(forward_backward, argnums=(0,)), static_argnums=(2, 5, 6)
+    fj = jax.jit(
+        lambda s: forward_backward(s, *args)["loglik"], static_argnums=(2, 5, 6)
     )
-    assert np.isfinite(fj_grad(s, *args)).all()
+    assert np.isfinite(fj(s)).all()
+    fj_grad = jax.jit(jax.grad(fj))
+    assert np.isfinite(fj_grad(s)).all()
 
     from scipy.optimize import check_grad
 
-    cg = check_grad(fj, lambda s, *args: fj_grad(s, *args)[0], s, *args, epsilon=1e-6)
+    cg = check_grad(
+        fj,
+        fj_grad,
+        s,
+        epsilon=1e-6,
+    )
     assert cg < 1
 
 
 @pytest.fixture
 def M():
     return 100
+
+
+def test_trans_infinite():
+    T = trans_infinite(0.01, 10, 1.0 * jnp.arange(101), jnp.linspace(0, 1e8, 101))
+
+
+def test_trans_diffusion():
+    f = trans_diffusion(0.02, 0.5, 0.01, 1e1 * np.ones(1000), 10, np.eye(11)[4])
+    breakpoint()
+
+
+def test_exact_trans_table1():
+    # fix alpha=500  via alpha = tau / (2 eps ** 2)
+    alpha = 500
+    eps = 1.0
+    tau = alpha * 2 * eps ** 2
 
 
 def test_exact_trans(M):

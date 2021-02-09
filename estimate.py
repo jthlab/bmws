@@ -10,8 +10,7 @@ import scipy.stats
 
 from common import xform, Observation, PosteriorDecoding
 from fusedlasso import fusedlasso
-from hmm import forward_backward
-
+from hmm import forward_backward, stochastic_traceback
 
 import logging
 
@@ -20,10 +19,9 @@ logger = logging.getLogger(__name__)
 
 @partial(jax.jit, static_argnums=(2, 5, 6))
 @jax.value_and_grad
-def obj(x_s, h, times, Ne, obs, M, lam_):
-    s = xform(x_s)
+def obj(s, h, times, Ne, obs, M, lam_):
     return (
-        -forward_backward(s, h, times, Ne, obs, M, True)["log_c"].sum()
+        -forward_backward(s, h, times, Ne, obs, M, True)["loglik"]
         + lam_ * (jnp.diff(s) ** 2).sum()
     )
 
@@ -64,7 +62,7 @@ def estimate(
         shim, x0, jac=True, args=args, method=optimizer, options=options, **kwargs
     )
     logger.debug("Optimization result: %s", res)
-    return {"t": times, "s": xform(res.x), "obs": obs}
+    return {"t": times, "s": res.x, "obs": obs}
 
 
 def _prep_data(data):
@@ -75,6 +73,24 @@ def _prep_data(data):
         raise ValueError("times should be distinct")
     obs = np.array(obs)
     return np.array(Ne), obs, times
+
+
+def sample_paths(
+    data: List[Observation],
+    s: np.ndarray,
+    h: float = 0.5,
+    M: int = 64,
+    num_paths: int = 1,
+):
+    Ne, obs, times = _prep_data(data)
+    assert len(times) == len(s) + 1 == len(h) + 1
+    res = forward_backward(np.array(s), np.array(h), times, Ne, obs, M, True)
+    seed = jnp.arange(num_paths)
+    paths = jax.vmap(stochastic_traceback, in_axes=(None, None, 0))(
+        res["alpha"], res["T"], seed
+    )
+    return jnp.take_along_axis(res["hidden_states"].T, paths, axis=0) / res["Ne"][None]
+    # times = jax.vmap(jnp.take_along_axis(res["hidden_states"], paths, axis)
 
 
 def posterior_decoding(
@@ -98,9 +114,12 @@ def posterior_decoding(
     """
     Ne, obs, times = _prep_data(data)
     assert len(times) == len(s) + 1 == len(h) + 1
-    log_gamma, discr = forward_backward(
-        np.array(s), np.array(h), times, Ne, obs, M, False
-    )
+    res = forward_backward(np.array(s), np.array(h), times, Ne, obs, M, False)
     return PosteriorDecoding(
-        t=times, gamma=jnp.exp(log_gamma), discretizations=discr.untree()
+        t=times,
+        gamma=res["gamma"],
+        Ne=res["Ne"],
+        # B=res["B"],
+        # T=res["log_T"],
+        hidden_states=res["hidden_states"],
     )

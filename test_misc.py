@@ -13,7 +13,9 @@ from common import (
     log_matpow_ub,
     safe_lse,
     logexpm1,
+    solve_tdma,
 )
+from hmm import trans_infinite
 
 
 @pytest.fixture(params=range(10))
@@ -128,3 +130,21 @@ def test_logexpm1_inf():
 def test_logexpm1_rand(rng):
     for x in rng.exponential(size=10):
         np.testing.assert_allclose(np.log(-np.expm1(-x)), logexpm1(x), rtol=1e-4)
+
+
+def test_tdma():
+    a = [3, 3]
+    b = [2, 1]
+    c = [6, 5, 8]
+    d = [10, 16, 30]
+    A = np.diag(a, -1) + np.diag(b, 1) + np.diag(c)
+    y = solve_tdma(A, np.array(d))
+    np.testing.assert_allclose(y, np.arange(1, 4))
+
+
+def test_tdma_vs_solve(rng: np.random.Generator):
+    a, b = rng.random(size=(2, 10))
+    c, d = rng.random(size=(2, 11))
+    A = np.diag(a, -1) + np.diag(b, 1) + np.diag(c)
+    y = solve_tdma(A, np.array(d))
+    np.testing.assert_allclose(y, np.linalg.solve(A, d), rtol=1e-4)

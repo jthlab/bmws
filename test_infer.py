@@ -1,5 +1,5 @@
 from common import Observation, Discretization
-from estimate import posterior_decoding
+from estimate import posterior_decoding, sample_paths
 
 mdls = [
     {"s": [0.01] * 100, "h": [0.5] * 100, "f0": 0.1},
@@ -78,4 +78,26 @@ def test_huge_Ne():
         mdl["s"][::k],
         mdl["h"][::k],  # parameters for HMM
         64,  # number of discretizations
+    )
+
+
+def test_stochastic_traceback():
+    Ne = int(1e3)
+    rng = np.random.default_rng()
+    mdl = mdls[1]
+    af = sim_wf(Ne, mdl["s"], mdl["h"], mdl["f0"], rng)
+    n = 100
+    k = 10
+    obs = rng.binomial(n, af[::k])  # sample n haploids every d generations
+
+    data = [
+        Observation(t=t, sample_size=n, num_derived=oo, Ne=Ne)
+        for t, oo in zip(range(0, len(af), k), obs)
+    ]
+    paths = sample_paths(
+        data,  # observed data
+        mdl["s"][::k],
+        mdl["h"][::k],  # parameters for HMM
+        64,  # number of discretizations
+        20,  # number of paths
     )
