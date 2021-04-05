@@ -45,7 +45,7 @@ def estimate(
         optimizer = "L-BFGS-B"
         args += (lam,)
         kwargs["bounds"] = [[-0.2, 0.2]] * len(x0)
-    options = {}
+    options = {'maxls':100, 'ftol':2.220446049250313e-15}
     i = 0
 
     def shim(x, *args):
@@ -57,7 +57,7 @@ def estimate(
         return tuple(np.array(x, dtype=np.float64) for x in ret)
 
     res = scipy.optimize.minimize(
-        shim, x0, jac=True, args=args, method=optimizer, options=options, **kwargs
+        shim, x0, jac=True, args=args, method=optimizer, options=options, **kwargs 
     )
     logger.debug("Optimization result: %s", res)
     return {"t": times, "s": res.x, "obs": obs}
