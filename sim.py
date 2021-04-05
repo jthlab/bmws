@@ -7,7 +7,7 @@ from estimate import estimate
 
 
 def sim_wf(
-    N: int, s: np.ndarray, h: np.ndarray, f0: int, rng: Union[int, np.random.Generator]
+    N: np.ndarray, s: np.ndarray, h: np.ndarray, f0: int, rng: Union[int, np.random.Generator]
 ):
     """Simulate T generations under wright-fisher model with population size 2N, where
     allele has initial frequency f0 and the per-generation selection coefficient is
@@ -19,13 +19,15 @@ def sim_wf(
     assert 0 <= f0 <= 1
     T = len(s)
     assert T == len(h)
+    assert T == len(N)
+
     if isinstance(rng, int):
         rng = np.random.default_rng(rng)
     f = np.zeros(T + 1)
     f[0] = f0
     for t in range(1, T + 1):
         p = f_sh(f[t - 1], s[t - 1], h[t - 1])
-        f[t] = rng.binomial(2 * N, p) / (2 * N)
+        f[t] = rng.binomial(2 * N[t-1], p) / (2 * N[t-1])
     return f
 
 
@@ -53,21 +55,37 @@ def sim_and_fit(
     lam: float,
     ell1: bool = False,
     Ne=1e4,  # effective population size
-    n=100,  # sample size
-    k=10,  # sampling interval
+    n=100,  # sample size - either an integer, or an iterable of sizes
+    k=10,  # sampling interval - either an integer, or an iterable of sampling times. 
+    Ne_fit=None, # Ne used for fitting model 
     **kwargs
 ):
     # Parameters
     T = len(mdl["s"]) + 1  # number of time points
 
+    #Set up population size. 
+    if isinstance(Ne, int) or isinstance(Ne, float):
+        Ne=np.array([Ne]*(T-1))
+    else:
+        Ne=np.array(Ne)
+    
+    if not Ne_fit:
+        Ne_fit=Ne
+    
+    #Set up sampling scheme
+    sample_times,sample_sizes=k,n
+    if isinstance(n, int) and isinstance(k, int):
+        sample_times=range(T)[::k]
+        sample_sizes=[n for x in sample_times]        
+        
     # Simulate true trajectory
     rng = np.random.default_rng(seed)
     af = sim_wf(Ne, mdl["s"], mdl["h"], mdl["f0"], rng)
-    obs = rng.binomial(n, af[::k])  # sample n haploids every d generations
-
+    obs = [rng.binomial(x, af[y]) for x,y in zip(sample_sizes, sample_times)]
+    
     data = [
-        Observation(t=t, sample_size=n, num_derived=oo, Ne=Ne)
-        for t, oo in zip(range(0, len(af), k), obs)
+        Observation(t=t, sample_size=nn, num_derived=oo, Ne=ne)
+        for t, nn, oo, ne in zip(sample_times, sample_sizes, obs, Ne_fit)
     ]
 
     return estimate(data, lam=lam, ell1=ell1, **kwargs)

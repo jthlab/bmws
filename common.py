@@ -76,6 +76,38 @@ class PosteriorDecoding:
         ax.boxplot(S.T, positions=self.t, widths=2, sym="")
         return ax
 
+    def mode(self):
+        """Return the posterior mean frequency
+        
+        Args:
+            None
+            
+        Returns:
+            vector of posterior mode frequency
+        """
+        md=np.argmax(self.gamma, axis=1)
+        ret = np.zeros([len(self.t)])
+        for i, (hs, best, Ne) in enumerate(zip(self.hidden_states, md, self.Ne)):
+            ret[i] = hs[best] / Ne
+
+        return ret
+    
+    def mean(self):
+        """Return the posterior mean frequency
+        
+        Args:
+            None
+            
+        Returns:
+            mean: vector of posterior mean frequency
+            time points
+        """
+        ret = np.zeros([len(self.t)])
+        for i, (hs, gm, Ne) in enumerate(zip(self.hidden_states, self.gamma, self.Ne)):
+            ret[i] = np.sum(gm*hs) / Ne
+
+        return ret
+    
     def sample(self, k, rng=None):
         """Sample points from this posterior according to weights.
 
