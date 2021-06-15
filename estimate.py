@@ -42,11 +42,34 @@ def estimate(
     optimizer = "L-BFGS-B"
     args += (lam,)
     kwargs["bounds"] = [[-0.2, 0.2]] * len(x0)
+    i = 0
 
     def shim(x, *args):
-        ret = obj(x, *args)
-        logger.debug("x=%s f=%f df=%s", x, *ret)
-        return tuple(np.array(x, dtype=np.float64) for x in ret)
+        nonlocal i
+        ret = tuple(np.array(y, dtype=np.float64) for y in obj(x, *args))
+        logger.debug("i=%d f=%f |df|=%f", i, ret[0], np.linalg.norm(ret[1]))
+        i += 1
+        return ret
+
+    # from jax.experimental import optimizers
+    #
+    # opt_init, opt_update, get_params = optimizers.adagrad(
+    #     solver_options.get("learning_rate", 1.0)
+    # )
+    # opt_state = opt_init(x0)
+    #
+    # def step(step, opt_state):
+    #     value, grads = obj(get_params(opt_state), *args)
+    #     opt_state = opt_update(step, grads, opt_state)
+    #     return value, opt_state, grads
+    #
+    # for i in range(1000):
+    #     value, opt_state, grads = step(i, opt_state)
+    #     logger.debug("f=%f |grad|=%f", value, np.linalg.norm(grads))
+    #
+    # logger.debug("value=%f grad=%s", value, grads)
+    #
+    # return get_params(opt_state)
 
     res = scipy.optimize.minimize(
         shim,

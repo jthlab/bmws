@@ -1,4 +1,3 @@
-import dataclasses
 import functools
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Tuple, Union
@@ -59,8 +58,8 @@ class PosteriorDecoding:
     t: np.ndarray
     hidden_states: List[np.ndarray]
     Ne: np.ndarray
-    # log_T: np.ndarray
-    # log_B: np.ndarray
+    B: np.ndarray = None
+    T: np.ndarray = None
 
     def draw(self, ax=None, k=10_000, seed: int = 1) -> "matplotlib.Axis":
         if ax is None:
@@ -76,36 +75,36 @@ class PosteriorDecoding:
 
     def mode(self):
         """Return the posterior mean frequency
-        
+
         Args:
             None
-            
+
         Returns:
             vector of posterior mode frequency
         """
-        md=np.argmax(self.gamma, axis=1)
+        md = np.argmax(self.gamma, axis=1)
         ret = np.zeros([len(self.t)])
         for i, (hs, best, Ne) in enumerate(zip(self.hidden_states, md, self.Ne)):
             ret[i] = hs[best] / Ne
 
         return ret
-    
+
     def mean(self):
         """Return the posterior mean frequency
-        
+
         Args:
             None
-            
+
         Returns:
             mean: vector of posterior mean frequency
             time points
         """
         ret = np.zeros([len(self.t)])
         for i, (hs, gm, Ne) in enumerate(zip(self.hidden_states, self.gamma, self.Ne)):
-            ret[i] = np.sum(gm*hs) / Ne
+            ret[i] = np.sum(gm * hs) / Ne
 
         return ret
-    
+
     def sample(self, k, rng=None):
         """Sample points from this posterior according to weights.
 
