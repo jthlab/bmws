@@ -6,13 +6,11 @@ from typing import Callable, Dict, List, Tuple, Union
 import jax
 import numpy as np
 from jax import numpy as jnp
-from jax.experimental.host_callback import id_print
 from jax.scipy.special import gammaln, xlog1py, xlogy
 
 
 def f_sh(x: float, s: float, h: float) -> float:
     "allele propagation function for general diploid selection model"
-    s *= 2.0
     ret = (
         x
         * (1 + s * h + s * (1 - h) * x)

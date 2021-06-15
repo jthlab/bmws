@@ -1,16 +1,18 @@
 #Shared plotting and i/o code
 import numpy as np
 
-def plot_summary(ax, x, y, truth=None):
-    q25, q50, q75 = np.quantile(y, [0.25, 0.5, 0.75], axis=0)
+
+def plot_summary(ax, x, y, truth=None, q=[0.025, 0.5, 0.975]):
+    lower, mid, upper = np.quantile(y, q, axis=0)
     assert len(set(x)) == 1
     x = x[0]
-    ax.plot(x, q50, color="tab:blue")
-    ax.fill_between(x, q25, q75, alpha=0.2, color="tab:blue")
+    ax.plot(x, mid, color="tab:blue")
+    ax.fill_between(x, lower, upper, alpha=0.2, color="tab:blue")
     if truth is not None:
         x0 = np.arange(len(truth))
         ax.plot(x0, truth, "--", alpha=0.5, color="tab:grey")
-        
+
+
 def compute_rmse(x, y, truth):
     """
     x: vector of T times ranging from N to 0 generations before present

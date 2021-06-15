@@ -3,11 +3,15 @@ from typing import Dict, Union
 import numpy as np
 
 from common import Observation, f_sh
-from estimate import estimate
+from estimate import estimate, _prep_data
 
 
 def sim_wf(
-    N: np.ndarray, s: np.ndarray, h: np.ndarray, f0: int, rng: Union[int, np.random.Generator]
+    N: np.ndarray,
+    s: np.ndarray,
+    h: np.ndarray,
+    f0: int,
+    rng: Union[int, np.random.Generator],
 ):
     """Simulate T generations under wright-fisher model with population size 2N, where
     allele has initial frequency f0 and the per-generation selection coefficient is
@@ -27,7 +31,7 @@ def sim_wf(
     f[0] = f0
     for t in range(1, T + 1):
         p = f_sh(f[t - 1], s[t - 1], h[t - 1])
-        f[t] = rng.binomial(2 * N[t-1], p) / (2 * N[t-1])
+        f[t] = rng.binomial(2 * N[t - 1], p) / (2 * N[t - 1])
     return f
 
 
@@ -53,39 +57,33 @@ def sim_and_fit(
     mdl: Dict,
     seed: int,
     lam: float,
-    ell1: bool = False,
     Ne=1e4,  # effective population size
     n=100,  # sample size - either an integer, or an iterable of sizes
-    k=10,  # sampling interval - either an integer, or an iterable of sampling times. 
-    Ne_fit=None, # Ne used for fitting model 
+    k=10,  # sampling interval - either an integer, or an iterable of sampling times.
     **kwargs
 ):
     # Parameters
     T = len(mdl["s"]) + 1  # number of time points
 
-    #Set up population size. 
+    # Set up population size.
     if isinstance(Ne, int) or isinstance(Ne, float):
-        Ne=np.array([Ne]*(T-1))
+        Ne = np.array([Ne] * (T - 1))
     else:
-        Ne=np.array(Ne)
-    
-    if not Ne_fit:
-        Ne_fit=Ne
-    
-    #Set up sampling scheme
-    sample_times,sample_sizes=k,n
+        Ne = np.array(Ne)
+
+    # Set up sampling scheme
+    sample_times, sample_sizes = k, n
     if isinstance(n, int) and isinstance(k, int):
-        sample_times=range(T)[::k]
-        sample_sizes=[n for x in sample_times]        
-        
+        sample_times = range(T)[::k]
+        sample_sizes = [n for x in sample_times]
+
     # Simulate true trajectory
     rng = np.random.default_rng(seed)
-    af = sim_wf(Ne, mdl["s"], mdl["h"], mdl["f0"], rng)
-    obs = [rng.binomial(x, af[y]) for x,y in zip(sample_sizes, sample_times)]
-    
-    data = [
-        Observation(t=t, sample_size=nn, num_derived=oo, Ne=ne)
-        for t, nn, oo, ne in zip(sample_times, sample_sizes, obs, Ne_fit)
+    # simulate the wright-fisher model. all parametetr vectros are reversed so that times runs from past to present.
+    af = sim_wf(Ne[::-1], mdl["s"][::-1], mdl["h"][::-1], mdl["f0"], rng)[::-1]
+    obs = np.zeros([T, 2])
+    obs[sample_times, :] = [
+        (n, rng.binomial(n, af[t])) for n, t in zip(sample_sizes, sample_times)
     ]
-
-    return estimate(data, lam=lam, ell1=ell1, **kwargs)
+    s_hat = estimate(obs, Ne, lam=lam, **kwargs)
+    return {"s_hat": s_hat, "obs": obs, "Ne": Ne, "true_af": af}
