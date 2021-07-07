@@ -276,9 +276,10 @@ def loglik(s, Ne, obs, M=100):
     return lls.sum()
 
 
-@partial(jit, static_argnums=4)
-def _sample_path(s, Ne, obs, rng, M):
+@partial(jit, static_argnums=(3, 4))
+def sample_paths(s, Ne, obs, k, M, seed=1):
     "draw k samples from the posterior allele frequency distribution"
+    rng = jax.random.PRNGKey(seed)
 
     def _sample_spikebeta(beta: SpikedBeta, rng, cond):
         # -1, M represent the special fixed states 0/1
@@ -297,8 +298,6 @@ def _sample_path(s, Ne, obs, rng, M):
         return (s, x)
 
     (betas, beta0), _ = forward(s, Ne, obs, M)
-    rng, sub = jax.random.split(rng)
-    s0, x0 = _sample_spikebeta(beta0, sub, True)
 
     def _f(tup, beta):
         rng, s1 = tup
@@ -306,13 +305,11 @@ def _sample_path(s, Ne, obs, rng, M):
         s, x = _sample_spikebeta(beta, sub1, s1)
         return (rng, s), x
 
-    _, xs = jax.lax.scan(_f, (rng, s0), betas, reverse=True)
-    return jnp.concatenate([xs, x0[None]])
-
-
-def sample_paths(s, Ne, obs, k, rng=jax.random.PRNGKey(1), M=10):
-    paths = []
-    for _ in range(k):
+    def _g(rng, _):
         rng, sub = jax.random.split(rng)
-        paths.append(_sample_path(s, Ne, obs, sub, M))
-    return np.array(paths)
+        s0, x0 = _sample_spikebeta(beta0, sub, True)
+        _, xs = jax.lax.scan(_f, (rng, s0), betas, reverse=True)
+        return rng, jnp.concatenate([xs, x0[None]])
+
+    _, ret = jax.lax.scan(_g, rng, None, length=k)
+    return ret, (betas, beta0)
