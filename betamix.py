@@ -1,5 +1,5 @@
 from functools import lru_cache, partial
-from typing import NamedTuple
+from typing import NamedTuple, Union
 
 import cvxpy as cp
 import jax
@@ -10,6 +10,7 @@ from jax import (
     jit,
     vmap,
     tree_multimap,
+    tree_map,
 )
 from jax.experimental.host_callback import id_print
 
@@ -157,7 +158,7 @@ class SpikedBeta(NamedTuple):
 # @partial(jit, static_argnums=4)
 
 
-def transition(f: SpikedBeta, s: float, Ne: float, n: int, d: int):
+def transition(f: SpikedBeta, s: float, Ne: float, n: int, d: int, alpha: float):
     """Given a prior distribution on population allele frequency, compute posterior after
     observing data at dt generations in the future"""
 
@@ -184,9 +185,16 @@ def transition(f: SpikedBeta, s: float, Ne: float, n: int, d: int):
     # p(d_k|d_{k-1},...,d_1) = \int p(d_k|x_k) p(x_k | d_k-1,..,d1)
     # probability of data arising from each mixing component
     # a1, b1 = id_print((a1, b1), what="wf_trans")
-    ret = _binom_sampling(n, d, a1, b1, log_c, log_p0, log_p1)
-    ret = id_print(ret, what="ret")
-    return ret
+    beta, ll = _binom_sampling(n, d, a1, b1, log_c, log_p0, log_p1)
+    # switch with prob alpha
+    beta = beta._replace(
+        f_x=beta.f_x._replace(
+            log_c=jnp.logaddexp(
+                jnp.log1p(-alpha) + log_c, jnp.log(alpha) + beta.f_x.log_c
+            )
+        )
+    )
+    return beta, ll
 
 
 def _binom_sampling(n, d, a, b, log_c, log_p0, log_p1):
@@ -215,7 +223,7 @@ def _binom_sampling(n, d, a, b, log_c, log_p0, log_p1):
 
 
 # @partial(jit, static_argnums=3)
-def forward(s, Ne, obs, M):
+def forward(s, Ne, obs, prior, alpha):
     """
     s: [T - 1] selection coefficient at each time point
     Ne: [T - 1] diploid effective population size at each time point
@@ -225,11 +233,11 @@ def forward(s, Ne, obs, M):
     n, d = obs.T
 
     def _f(fX, d):
-        beta, ll = transition(fX, **d)
+        beta, ll = transition(fX, **d, alpha=alpha)
         return beta, (beta, ll)
 
     # uniform
-    f_x = BetaMixture.uniform(M)
+    f_x = prior  # BetaMixture.uniform(M)
 
     beta0, ll0 = _binom_sampling(
         n[-1], d[-1], f_x.a, f_x.b, f_x.log_c, -jnp.inf, -jnp.inf
@@ -271,15 +279,26 @@ def _tree_unstack(tree):
     return new_trees
 
 
-def loglik(s, Ne, obs, M=100):
-    betas, lls = forward(s, Ne, obs, M)
+def loglik(s, Ne, obs, prior, alpha=0.01):
+    betas, lls = forward(s, Ne, obs, prior, alpha)
     return lls.sum()
 
 
+def _construct_prior(prior: Union[int, BetaMixture]) -> BetaMixture:
+    if isinstance(prior, int):
+        M = prior
+        prior = BetaMixture.uniform(M)
+    return prior
+
+
 @partial(jit, static_argnums=(3, 4))
-def sample_paths(s, Ne, obs, k, M, seed=1):
+def sample_paths(
+    s, Ne, obs, k, alpha=0.0, seed=1, prior: Union[int, BetaMixture] = 100
+):
     "draw k samples from the posterior allele frequency distribution"
     rng = jax.random.PRNGKey(seed)
+
+    prior = _construct_prior(prior)
 
     def _sample_spikebeta(beta: SpikedBeta, rng, cond):
         # -1, M represent the special fixed states 0/1
@@ -297,19 +316,30 @@ def sample_paths(s, Ne, obs, k, M, seed=1):
         )
         return (s, x)
 
-    (betas, beta0), _ = forward(s, Ne, obs, M)
+    (betas, beta_n), _ = forward(s, Ne, obs, prior, alpha)
+
+    beta0 = tree_map(lambda a: a[0], betas)
+    beta1n = tree_multimap(
+        lambda a, b: jnp.concatenate([a[1:], b[None]]), betas, beta_n
+    )
+    betas = tree_multimap(lambda a, b: jnp.concatenate([a, b[None]]), betas, beta_n)
 
     def _f(tup, beta):
+        from jax.experimental.host_callback import id_print
+
         rng, s1 = tup
         rng, sub1, sub2 = jax.random.split(rng, 3)
-        s, x = _sample_spikebeta(beta, sub1, s1)
+        s2, x = _sample_spikebeta(beta, sub1, s1)
+        # switch mixing components w.p. alpha
+        i = jax.random.categorical(sub2, jnp.array([jnp.log1p(-alpha), jnp.log(alpha)]))
+        s = jnp.array([s1, s2])[i]
         return (rng, s), x
 
     def _g(rng, _):
         rng, sub = jax.random.split(rng)
-        s0, x0 = _sample_spikebeta(beta0, sub, True)
-        _, xs = jax.lax.scan(_f, (rng, s0), betas, reverse=True)
-        return rng, jnp.concatenate([xs, x0[None]])
+        s0, x0 = _sample_spikebeta(beta0, sub, 0)
+        _, xs = jax.lax.scan(_f, (sub, s0), beta1n)
+        return rng, jnp.concatenate([x0[None], xs])
 
     _, ret = jax.lax.scan(_g, rng, None, length=k)
-    return ret, (betas, beta0)
+    return ret, betas

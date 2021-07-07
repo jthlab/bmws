@@ -21,22 +21,23 @@ from betamix import loglik
 logger = logging.getLogger(__name__)
 
 
-def _obj(s, Ne, obs, M, lam):
-    ll = loglik(s, Ne, obs, M)
+def _obj(s, Ne, obs, prior, alpha, lam):
+    ll = loglik(s, Ne, obs, prior, alpha)
     return -ll + lam * (jnp.diff(s) ** 2).sum()
 
 
-obj = jit(value_and_grad(_obj), static_argnums=(3,))
+obj = jit(value_and_grad(_obj))
 
 
 def estimate(
     obs,
     Ne,
     lam: float = 1.0,
-    M: int = 100,
+    prior: Union[int, betamix.BetaMixture] = 100,
+    alpha: float = 0.0,
     solver_options: dict = {},
 ):
-    args = (Ne, obs, M)
+    args = (Ne, obs, prior, alpha)
     x0 = np.zeros(len(obs) - 1)
     kwargs = {}
     optimizer = "L-BFGS-B"
