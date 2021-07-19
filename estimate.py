@@ -33,7 +33,7 @@ def estimate(
     obs,
     Ne,
     lam: float = 1.0,
-    prior: Union[int, betamix.BetaMixture] = 100,
+    prior: Union[int, betamix.BetaMixture] = betamix.BetaMixture.uniform(100),
     alpha: float = 0.0,
     solver_options: dict = {},
 ):

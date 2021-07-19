@@ -293,7 +293,7 @@ def _construct_prior(prior: Union[int, BetaMixture]) -> BetaMixture:
 
 @partial(jit, static_argnums=(3, 4))
 def sample_paths(
-    s, Ne, obs, k, alpha=0.0, seed=1, prior: Union[int, BetaMixture] = 100
+    s, Ne, obs, k, alpha=0.0, seed=1, prior: Union[int, BetaMixture] = BetaMixture.uniform(100)
 ):
     "draw k samples from the posterior allele frequency distribution"
     rng = jax.random.PRNGKey(seed)

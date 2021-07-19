@@ -4,7 +4,8 @@ import numpy as np
 
 from common import Observation, f_sh
 from estimate import estimate, _prep_data
-
+from betamix import BetaMixture
+from scipy.stats import beta
 
 def sim_wf(
     N: np.ndarray,
@@ -60,23 +61,30 @@ def sim_and_fit(
     Ne=1e4,  # effective population size
     n=100,  # sample size - either an integer, or an iterable of sizes
     k=10,  # sampling interval - either an integer, or an iterable of sampling times.
+    Ne_fit=None, # Ne to use for estimation (if different to that used for simulation)
     **kwargs
 ):
     # Parameters
     T = len(mdl["s"]) + 1  # number of time points
 
     # Set up population size.
+
     if isinstance(Ne, int) or isinstance(Ne, float):
         Ne = np.array([Ne] * (T - 1))
     else:
         Ne = np.array(Ne)
 
+    if not Ne_fit:
+        Ne_fit=Ne
+    else: 
+        Ne_fit=np.array(Ne_fit)
+        
     # Set up sampling scheme
     sample_times, sample_sizes = k, n
     if isinstance(n, int) and isinstance(k, int):
         sample_times = range(T)[::k]
         sample_sizes = [n for x in sample_times]
-
+        
     # Simulate true trajectory
     rng = np.random.default_rng(seed)
     # simulate the wright-fisher model. all parametetr vectros are reversed so that times runs from past to present.
@@ -85,5 +93,17 @@ def sim_and_fit(
     obs[sample_times, :] = [
         (n, rng.binomial(n, af[t])) for n, t in zip(sample_sizes, sample_times)
     ]
-    s_hat = estimate(obs, Ne, lam=lam, **kwargs)
+
+    #setup prior
+    M = 200
+    prior = BetaMixture.uniform(M)
+    f = np.mean([x[1] / x[0] for x in obs if x[0] > 0])
+    b = 4
+    a = b * f / (1 - f)
+    dens = [beta.pdf((x + 1) / (M + 1), a, b) for x in range(M)]
+    total = np.sum(dens)
+    dens = [x / total for x in dens]
+    prior = prior._replace(log_c=np.log(dens))
+    
+    s_hat = estimate(obs, Ne_fit, lam=lam, prior=prior, **kwargs)
     return {"s_hat": s_hat, "obs": obs, "Ne": Ne, "true_af": af}
