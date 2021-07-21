@@ -22,7 +22,7 @@ def parse_options():
                         "vcf input files")
     parser.add_argument('-o', '--out', type=str, default="", help=
                         "output file")
-    parser.add_argument('-l', '--lam', type=int, default=5, help=
+    parser.add_argument('-l', '--lam', type=float, default=5, help=
                         "log10(lambda) to use; default 5")
     parser.add_argument('-g', '--gen', type=float, default=29, help=
                         "generation time in years")
@@ -171,8 +171,9 @@ def main(options):
 
         sl1=np.sqrt(np.mean(res*res))
         sl2=np.sqrt(np.mean((res-np.mean(res))**2))
-
-        print("\t".join(snpinfo+[str(round(sl1,6)), str(round(sl2,6))]))
+        freq=np.sum(obs[:,1])/np.sum(obs[:,0])
+        
+        print("\t".join(snpinfo+[str(round(freq,3)), str(round(sl1,6)), str(round(sl2,6))]))
                 
 ################################################################################
 
