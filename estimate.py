@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import numpy as np
 import scipy.optimize
 import scipy.stats
-from jax import jit, vmap, value_and_grad
+from jax import jit, vmap, value_and_grad, lax
 from jax.experimental.host_callback import id_print
 
 import betamix
@@ -28,6 +28,25 @@ def _obj(s, Ne, obs, prior, alpha, lam):
 
 obj = jit(value_and_grad(_obj))
 
+@partial(jit, static_argnums=5)
+def jittable_estimate(obs, Ne, lam, prior, alpha, num_steps):
+    from jax.experimental.optimizers import adagrad
+    learning_rate = .01
+    opt_init, opt_update, get_params = adagrad(learning_rate)
+    params = jnp.zeros_like(Ne)
+    opt_state = opt_init(params)
+
+    def loss_fn(s):
+        return _obj(s, Ne, obs, prior, alpha, lam)
+
+    def step(step, opt_state):
+        value, grads = jax.value_and_grad(loss_fn)(get_params(opt_state))
+        opt_state = opt_update(step, grads, opt_state)
+        return opt_state
+
+    opt_state = lax.fori_loop(0, num_steps, step, opt_state)
+
+    return get_params(opt_state)
 
 def estimate(
     obs,
