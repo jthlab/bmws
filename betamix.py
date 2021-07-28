@@ -1,11 +1,9 @@
 from functools import lru_cache, partial
 from typing import NamedTuple, Union
 
-import cvxpy as cp
 import jax
 import jax.numpy as jnp
 import numpy as np
-from cvxpylayers.jax import CvxpyLayer
 from jax import (
     jit,
     vmap,
