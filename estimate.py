@@ -21,23 +21,64 @@ from betamix import loglik
 logger = logging.getLogger(__name__)
 
 
-def _obj(s, Ne, obs, prior, alpha, lam):
-    ll = loglik(s, Ne, obs, prior, alpha)
+def _obj(s, Ne, obs, prior, lam):
+    ll = loglik(s, Ne, obs, prior)
     return -ll + lam * (jnp.diff(s) ** 2).sum()
 
 
 obj = jit(value_and_grad(_obj))
 
-@partial(jit, static_argnums=5)
-def jittable_estimate(obs, Ne, lam, prior, alpha, num_steps):
+
+# @partial(jit, static_argnums=(2, 3))
+def empirical_bayes(obs, Ne, M, num_steps=100) -> betamix.BetaMixture:
+    "maximize marginal likelihood w/r/t prior hyperparameters assuming neutrality"
     from jax.experimental.optimizers import adagrad
-    learning_rate = .01
+    from jax.scipy.stats import beta
+
+    learning_rate = 0.01
+    opt_init, opt_update, get_params = adagrad(learning_rate)
+    params = jnp.zeros(2)
+    opt_state = opt_init(params)
+
+    s0 = jnp.zeros_like(Ne)
+
+    def beta_pdf(x, a, b):
+        from jax.scipy.special import betaln, xlogy, xlog1py
+
+        return jnp.exp(xlogy(a - 1, x) + xlog1py(b - 1, -x) - betaln(a, b))
+
+    def interp(a, b):
+        return betamix.BetaMixture.interpolate(lambda x: beta_pdf(x, a, b), M)
+
+    def loss_fn(log_ab):
+        a, b = jnp.exp(log_ab)
+        a, b = id_print((a, b), what="ab")
+        prior = interp(a, b)
+        return _obj(s0, Ne, obs, prior, 0.0)
+
+    def step(i, opt_state):
+        value, grads = jax.value_and_grad(loss_fn)(get_params(opt_state))
+        opt_state = opt_update(i, grads, opt_state)
+        return opt_state
+
+    # opt_state = lax.fori_loop(0, num_steps, step, opt_state)
+    for i in range(num_steps):
+        opt_state = step(i, opt_state)
+    a_star, b_star = jnp.exp(get_params(opt_state))
+    return interp(a_star, b_star)
+
+
+@partial(jit, static_argnums=5)
+def jittable_estimate(obs, Ne, lam, prior, num_steps):
+    from jax.experimental.optimizers import adagrad
+
+    learning_rate = 0.01
     opt_init, opt_update, get_params = adagrad(learning_rate)
     params = jnp.zeros_like(Ne)
     opt_state = opt_init(params)
 
     def loss_fn(s):
-        return _obj(s, Ne, obs, prior, alpha, lam)
+        return _obj(s, Ne, obs, prior, lam)
 
     def step(step, opt_state):
         value, grads = jax.value_and_grad(loss_fn)(get_params(opt_state))
@@ -48,15 +89,15 @@ def jittable_estimate(obs, Ne, lam, prior, alpha, num_steps):
 
     return get_params(opt_state)
 
+
 def estimate(
     obs,
     Ne,
     lam: float = 1.0,
-    prior: Union[int, betamix.BetaMixture] = betamix.BetaMixture.uniform(100),
-    alpha: float = 0.0,
+    prior: Union[int, betamix.BetaMixture] = 100,
     solver_options: dict = {},
 ):
-    args = (Ne, obs, prior, alpha)
+    args = (Ne, obs, prior)
     x0 = np.zeros(len(obs) - 1)
     kwargs = {}
     optimizer = "L-BFGS-B"
