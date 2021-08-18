@@ -83,16 +83,24 @@ class BetaMixture(NamedTuple):
     log_c: np.ndarray
 
     @classmethod
-    def uniform(cls, M):
-        "Return a mixture f_x with M components, such that f_x(x) === 1, x \in [0, 1]."
+    def uniform(cls, M) -> "BetaMixture":
+        return cls.interpolate(lambda x: 1.0, M)
+
+    @classmethod
+    def interpolate(cls, f, M, norm=False) -> "BetaMixture":
         # bernstein polynomial basis:
-        # 1 = sum_{i=0}^(M) binom(M,i) x^i (1-x)^(M-i)
-        #   = sum_{i=1}^(M+1) binom(M,i-1) x^(i-1) (1-x)^(M-i+2-1)
-        #   = sum_{i=1}^(M+1) binom(M,i-1) * beta(i,M-i+2) x^(i-1) (1-x)^(M-i+2-1) / beta(i, M-i+2)
-        #   = sum_{i=1}^(M+1) (1+M)^-1 x^(i-1) (1-x)^(M-i+2-1) / beta(i, M-i+2)
-        i = jnp.arange(1, M + 1, dtype=float)
-        log_c = jnp.full(M, -jnp.log(M))
-        return cls(a=i, b=M - i + 1, log_c=log_c)
+        # sum_{i=0}^(M) f(i/M) binom(M,i) x^i (1-x)^(M-i)
+        #   = sum_{i=1}^(M+1) f((i-1)/M) binom(M,i-1) x^(i-1) (1-x)^(M-i+2-1)
+        #   = sum_{i=1}^(M+1) f((i-1)/M) binom(M,i-1) * beta(i,M-i+2) x^(i-1) (1-x)^(M-i+2-1) / beta(i, M-i+2)
+        #   = sum_{i=1}^(M+1) f((i-1)/M) (1+M)^-1 x^(i-1) (1-x)^(M-i+2-1) / beta(i, M-i+2)
+        i = jnp.arange(1, M + 2, dtype=float)
+        c = vmap(f)((i - 1) / M) / (1 + M)
+        c0 = jnp.isclose(c, 0.0)  # work around nans in gradients
+        c_safe = jnp.where(c0, 1.0, c)
+        log_c = jnp.where(c0, -jnp.inf, jnp.log(c_safe))
+        if norm:
+            log_c -= logsumexp(log_c)
+        return cls(a=i, b=M - i + 2, log_c=log_c)
 
     @property
     def M(self):
@@ -115,12 +123,15 @@ class BetaMixture(NamedTuple):
             - betaln(self.a, self.b)
         ).sum()
 
-    def plot(self, K=100) -> None:
-        import matplotlib.pyplot as plt
+    def plot(self, K=100, ax=None) -> None:
+        if ax is None:
+            import matplotlib.pyplot as plt
+
+            ax = plt.gca()
 
         x = np.linspace(0.0, 1.0, K)
         y = np.vectorize(self)(x)
-        plt.plot(x, y)
+        ax.plot(x, y)
 
 
 class SpikedBeta(NamedTuple):
@@ -234,19 +245,20 @@ def forward(s, Ne, obs, prior):
         n[-1], d[-1], f_x.a, f_x.b, f_x.log_c, -jnp.inf, -jnp.inf
     )
 
-    # lls = []
-    # betas = []
-    # f_x = beta0
-    # for i in range(1, 1 + len(Ne)):
-    #     f_x, (_, ll) = _f(
-    #         f_x, {"Ne": Ne[-i], "n": n[-i - 1], "d": d[-i - 1], "s": s[-i]}
-    #     )
-    #     betas.append(f_x)
-    #     lls.append(ll)
-
-    _, (betas, lls) = jax.lax.scan(
-        _f, beta0, {"Ne": Ne, "n": n[:-1], "d": d[:-1], "s": s}, reverse=True
-    )
+    if False:
+        lls = []
+        betas = []
+        f_x = beta0
+        for i in range(1, 1 + len(Ne)):
+            f_x, (_, ll) = _f(
+                f_x, {"Ne": Ne[-i], "n": n[-i - 1], "d": d[-i - 1], "s": s[-i]}
+            )
+            betas.append(f_x)
+            lls.append(ll)
+    else:
+        _, (betas, lls) = jax.lax.scan(
+            _f, beta0, {"Ne": Ne, "n": n[:-1], "d": d[:-1], "s": s}, reverse=True
+        )
 
     return (betas, beta0), jnp.concatenate([jnp.array(lls), ll0[None]])
 

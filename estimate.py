@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import numpy as np
 import scipy.optimize
 import scipy.stats
-from jax import jit, vmap, value_and_grad, lax
+from jax import jit, vmap, value_and_grad, lax, grad
 from jax.experimental.host_callback import id_print
 
 import betamix
@@ -29,60 +29,88 @@ def _obj(s, Ne, obs, prior, lam):
 obj = jit(value_and_grad(_obj))
 
 
-# @partial(jit, static_argnums=(2, 3))
-def empirical_bayes(obs, Ne, M, num_steps=100) -> betamix.BetaMixture:
+def soft_xlogy(x, y):
+    x_ok = ~jnp.isclose(x, 0.0)
+    safe_x = jnp.where(x_ok, x, 1.0)
+    safe_y = jnp.where(x_ok, y, 1.0)
+    return jnp.where(x_ok, lax.mul(safe_x, lax.log(safe_y)), jnp.zeros_like(x))
+
+
+def soft_xlog1py(x, y):
+    x_ok = ~jnp.isclose(x, 0.0)
+    safe_x = jnp.where(x_ok, x, 1.0)
+    safe_y = jnp.where(x_ok, y, 1.0)
+    ret = jnp.where(x_ok, lax.mul(safe_x, lax.log1p(safe_y)), jnp.zeros_like(x))
+    # ret, _ = id_print(
+    #     (ret, {"x": x, "y": y, "safe_x": safe_x, "safe_y": safe_y, "x_ok": x_ok}),
+    #     what="ret",
+    # )
+    return ret
+
+
+@partial(jit, static_argnums=(3, 4))
+def empirical_bayes(
+    s, obs, Ne, M, num_steps=100, learning_rate=1.0
+) -> betamix.BetaMixture:
     "maximize marginal likelihood w/r/t prior hyperparameters assuming neutrality"
     from jax.experimental.optimizers import adagrad
     from jax.scipy.stats import beta
 
-    learning_rate = 0.01
     opt_init, opt_update, get_params = adagrad(learning_rate)
     params = jnp.zeros(2)
     opt_state = opt_init(params)
 
-    s0 = jnp.zeros_like(Ne)
-
     def beta_pdf(x, a, b):
         from jax.scipy.special import betaln, xlogy, xlog1py
 
-        return jnp.exp(xlogy(a - 1, x) + xlog1py(b - 1, -x) - betaln(a, b))
+        # assumes a, b >= 1.
+        x01 = jnp.isclose(x, 0.0) | jnp.isclose(x, 1.0)
+        safe_x = jnp.where(x01, 0.5, x)
+        return jnp.where(
+            x01,
+            0.0,
+            jnp.exp(xlogy(a - 1, safe_x) + xlog1py(b - 1, -safe_x) - betaln(a, b)),
+        )
 
     def interp(a, b):
-        return betamix.BetaMixture.interpolate(lambda x: beta_pdf(x, a, b), M)
+        return betamix.BetaMixture.interpolate(
+            lambda x: beta_pdf(x, a, b), M, norm=True
+        )
 
     def loss_fn(log_ab):
-        a, b = jnp.exp(log_ab)
-        a, b = id_print((a, b), what="ab")
+        a, b = 1.0 + jnp.exp(log_ab)
+        # a, b = id_print((a, b), what="ab")
         prior = interp(a, b)
-        return _obj(s0, Ne, obs, prior, 0.0)
+        return _obj(s, Ne, obs, prior, 0.0)
 
     def step(i, opt_state):
-        value, grads = jax.value_and_grad(loss_fn)(get_params(opt_state))
+        value, grads = value_and_grad(loss_fn)(get_params(opt_state))
+        # value, grads = id_print((value, grads), what="vg")
         opt_state = opt_update(i, grads, opt_state)
         return opt_state
 
-    # opt_state = lax.fori_loop(0, num_steps, step, opt_state)
-    for i in range(num_steps):
-        opt_state = step(i, opt_state)
-    a_star, b_star = jnp.exp(get_params(opt_state))
+    opt_state = lax.fori_loop(0, num_steps, step, opt_state)
+    # for i in range(num_steps):
+    #     opt_state = step(i, opt_state)
+    a_star, b_star = 1.0 + jnp.exp(get_params(opt_state))
     return interp(a_star, b_star)
 
 
 @partial(jit, static_argnums=5)
-def jittable_estimate(obs, Ne, lam, prior, num_steps):
+def jittable_estimate(obs, Ne, lam, prior, learning_rate=0.1, num_steps=100):
     from jax.experimental.optimizers import adagrad
 
-    learning_rate = 0.01
     opt_init, opt_update, get_params = adagrad(learning_rate)
-    params = jnp.zeros_like(Ne)
+    params = jnp.zeros(len(Ne))
     opt_state = opt_init(params)
 
+    @value_and_grad
     def loss_fn(s):
         return _obj(s, Ne, obs, prior, lam)
 
-    def step(step, opt_state):
-        value, grads = jax.value_and_grad(loss_fn)(get_params(opt_state))
-        opt_state = opt_update(step, grads, opt_state)
+    def step(i, opt_state):
+        value, grads = loss_fn(get_params(opt_state))
+        opt_state = opt_update(i, grads, opt_state)
         return opt_state
 
     opt_state = lax.fori_loop(0, num_steps, step, opt_state)

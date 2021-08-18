@@ -1,11 +1,13 @@
+import logging
+
+logger = logging.getLogger(__name__)
 from typing import Dict, Union
 
 import numpy as np
 
-from common import Observation, f_sh
-from estimate import estimate, _prep_data
-from betamix import BetaMixture
-from scipy.stats import beta
+from common import f_sh
+from estimate import estimate, empirical_bayes, jittable_estimate
+
 
 def sim_wf(
     N: np.ndarray,
@@ -61,7 +63,8 @@ def sim_and_fit(
     Ne=1e4,  # effective population size
     n=100,  # sample size - either an integer, or an iterable of sizes
     k=10,  # sampling interval - either an integer, or an iterable of sampling times.
-    Ne_fit=None, # Ne to use for estimation (if different to that used for simulation)
+    Ne_fit=None,  # Ne to use for estimation (if different to that used for simulation)
+    em_iterations=3,  # use empirical bayes to infer prior hyperparameters
     **kwargs
 ):
     # Parameters
@@ -70,21 +73,21 @@ def sim_and_fit(
     # Set up population size.
 
     if isinstance(Ne, int) or isinstance(Ne, float):
-        Ne = np.array([Ne] * (T - 1))
+        Ne = np.array([Ne] * (T - 1), dtype=float)
     else:
-        Ne = np.array(Ne)
+        Ne = np.array(Ne, dtype=float)
 
     if not Ne_fit:
-        Ne_fit=Ne
-    else: 
-        Ne_fit=np.array(Ne_fit)
-        
+        Ne_fit = Ne
+    else:
+        Ne_fit = np.array(Ne_fit)
+
     # Set up sampling scheme
     sample_times, sample_sizes = k, n
     if isinstance(n, int) and isinstance(k, int):
         sample_times = range(T)[::k]
         sample_sizes = [n for x in sample_times]
-        
+
     # Simulate true trajectory
     rng = np.random.default_rng(seed)
     # simulate the wright-fisher model. all parametetr vectros are reversed so that times runs from past to present.
@@ -94,16 +97,12 @@ def sim_and_fit(
         (n, rng.binomial(n, af[t])) for n, t in zip(sample_sizes, sample_times)
     ]
 
-    #setup prior
-    M = 200
-    prior = BetaMixture.uniform(M)
-    f = np.mean([x[1] / x[0] for x in obs if x[0] > 0])
-    b = 4
-    a = b * f / (1 - f)
-    dens = [beta.pdf((x + 1) / (M + 1), a, b) for x in range(M)]
-    total = np.sum(dens)
-    dens = [x / total for x in dens]
-    prior = prior._replace(log_c=np.log(dens))
-    
-    s_hat = estimate(obs, Ne_fit, lam=lam, prior=prior, **kwargs)
-    return {"s_hat": s_hat, "obs": obs, "Ne": Ne, "true_af": af}
+    # setup prior
+    M = 100
+    s = np.zeros(T - 1)
+    for i in range(em_iterations):
+        logger.info("EM iteration %d", i)
+        prior = empirical_bayes(s, obs, Ne, M)
+        s = estimate(obs, Ne_fit, lam=lam, prior=prior, **kwargs)
+
+    return {"s_hat": s, "obs": obs, "Ne": Ne, "true_af": af, "prior": prior}
