@@ -15,7 +15,7 @@ def parse_options():
     """
     parser=argparse.ArgumentParser()
 
-    parser.add_argument("-e", dest='example', action='store_true', help="run a simulated example to test installation" )
+    parser.add_argument("-x", dest='example', action='store_true', help="run a simulated example to test installation" )
     parser.add_argument('-m', '--meta', type=str, default="", help=
                         "meta-information file")
     parser.add_argument('-v', '--vcf', type=str, default="", help=
