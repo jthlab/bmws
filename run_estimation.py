@@ -154,11 +154,12 @@ def main(options):
         prior=makeprior(obs)
         res, prior = estimate.estimate_em(obs, Ne, lam=lam, em_iterations=options.em_iterations)
 
+        smn=np.mean(res)        
         sl1=np.sqrt(np.mean(res*res))
         sl2=np.sqrt(np.mean((res-np.mean(res))**2))
         freq=np.sum(obs[:,1])/np.sum(obs[:,0])
         
-        print("\t".join(snpinfo+[str(round(freq,3)), str(round(sl1,6)), str(round(sl2,6))]))
+        print("\t".join(snpinfo+[str(round(freq,3)), str(round(smn,6)), str(round(sl1,6)), str(round(sl2,6))]))
                 
 ################################################################################
 
