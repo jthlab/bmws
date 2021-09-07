@@ -152,7 +152,7 @@ def main(options):
         obs=gt_to_obs(ids, gt, meta)
         Ne = np.full(len(obs) - 1, options.Ne)
         prior=makeprior(obs)
-        res, prior = estimate.estimate(obs, Ne, lam=lam, em_iterations=options.em_iterations)
+        res, prior = estimate.estimate_em(obs, Ne, lam=lam, em_iterations=options.em_iterations)
 
         sl1=np.sqrt(np.mean(res*res))
         sl2=np.sqrt(np.mean((res-np.mean(res))**2))
