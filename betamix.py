@@ -1,11 +1,9 @@
 from functools import lru_cache, partial
 from typing import NamedTuple, Union
 
-import cvxpy as cp
 import jax
 import jax.numpy as jnp
 import numpy as np
-from cvxpylayers.jax import CvxpyLayer
 from jax import (
     jit,
     vmap,
@@ -85,16 +83,24 @@ class BetaMixture(NamedTuple):
     log_c: np.ndarray
 
     @classmethod
-    def uniform(cls, M):
-        "Return a mixture f_x with M components, such that f_x(x) === 1, x \in [0, 1]."
+    def uniform(cls, M) -> "BetaMixture":
+        return cls.interpolate(lambda x: 1.0, M)
+
+    @classmethod
+    def interpolate(cls, f, M, norm=False) -> "BetaMixture":
         # bernstein polynomial basis:
-        # 1 = sum_{i=0}^(M) binom(M,i) x^i (1-x)^(M-i)
-        #   = sum_{i=1}^(M+1) binom(M,i-1) x^(i-1) (1-x)^(M-i+2-1)
-        #   = sum_{i=1}^(M+1) binom(M,i-1) * beta(i,M-i+2) x^(i-1) (1-x)^(M-i+2-1) / beta(i, M-i+2)
-        #   = sum_{i=1}^(M+1) (1+M)^-1 x^(i-1) (1-x)^(M-i+2-1) / beta(i, M-i+2)
-        i = jnp.arange(1, M + 1, dtype=float)
-        log_c = jnp.full(M, -jnp.log(M))
-        return cls(a=i, b=M - i + 1, log_c=log_c)
+        # sum_{i=0}^(M) f(i/M) binom(M,i) x^i (1-x)^(M-i)
+        #   = sum_{i=1}^(M+1) f((i-1)/M) binom(M,i-1) x^(i-1) (1-x)^(M-i+2-1)
+        #   = sum_{i=1}^(M+1) f((i-1)/M) binom(M,i-1) * beta(i,M-i+2) x^(i-1) (1-x)^(M-i+2-1) / beta(i, M-i+2)
+        #   = sum_{i=1}^(M+1) f((i-1)/M) (1+M)^-1 x^(i-1) (1-x)^(M-i+2-1) / beta(i, M-i+2)
+        i = jnp.arange(1, M + 2, dtype=float)
+        c = vmap(f)((i - 1) / M) / (1 + M)
+        c0 = jnp.isclose(c, 0.0)  # work around nans in gradients
+        c_safe = jnp.where(c0, 1.0, c)
+        log_c = jnp.where(c0, -jnp.inf, jnp.log(c_safe))
+        if norm:
+            log_c -= logsumexp(log_c)
+        return cls(a=i, b=M - i + 2, log_c=log_c)
 
     @property
     def M(self):
@@ -117,12 +123,15 @@ class BetaMixture(NamedTuple):
             - betaln(self.a, self.b)
         ).sum()
 
-    def plot(self, K=100) -> None:
-        import matplotlib.pyplot as plt
+    def plot(self, K=100, ax=None) -> None:
+        if ax is None:
+            import matplotlib.pyplot as plt
+
+            ax = plt.gca()
 
         x = np.linspace(0.0, 1.0, K)
         y = np.vectorize(self)(x)
-        plt.plot(x, y)
+        ax.plot(x, y)
 
 
 class SpikedBeta(NamedTuple):
@@ -158,7 +167,7 @@ class SpikedBeta(NamedTuple):
 # @partial(jit, static_argnums=4)
 
 
-def transition(f: SpikedBeta, s: float, Ne: float, n: int, d: int, alpha: float):
+def transition(f: SpikedBeta, s: float, Ne: float, n: int, d: int):
     """Given a prior distribution on population allele frequency, compute posterior after
     observing data at dt generations in the future"""
 
@@ -185,16 +194,9 @@ def transition(f: SpikedBeta, s: float, Ne: float, n: int, d: int, alpha: float)
     # p(d_k|d_{k-1},...,d_1) = \int p(d_k|x_k) p(x_k | d_k-1,..,d1)
     # probability of data arising from each mixing component
     # a1, b1 = id_print((a1, b1), what="wf_trans")
-    beta, ll = _binom_sampling(n, d, a1, b1, log_c, log_p0, log_p1)
-    # switch with prob alpha
-    beta = beta._replace(
-        f_x=beta.f_x._replace(
-            log_c=jnp.logaddexp(
-                jnp.log1p(-alpha) + log_c, jnp.log(alpha) + beta.f_x.log_c
-            )
-        )
-    )
-    return beta, ll
+    ret = _binom_sampling(n, d, a1, b1, log_c, log_p0, log_p1)
+    ret = id_print(ret, what="ret")
+    return ret
 
 
 def _binom_sampling(n, d, a, b, log_c, log_p0, log_p1):
@@ -223,7 +225,7 @@ def _binom_sampling(n, d, a, b, log_c, log_p0, log_p1):
 
 
 # @partial(jit, static_argnums=3)
-def forward(s, Ne, obs, prior, alpha):
+def forward(s, Ne, obs, prior):
     """
     s: [T - 1] selection coefficient at each time point
     Ne: [T - 1] diploid effective population size at each time point
@@ -233,7 +235,7 @@ def forward(s, Ne, obs, prior, alpha):
     n, d = obs.T
 
     def _f(fX, d):
-        beta, ll = transition(fX, **d, alpha=alpha)
+        beta, ll = transition(fX, **d)
         return beta, (beta, ll)
 
     # uniform
@@ -243,19 +245,20 @@ def forward(s, Ne, obs, prior, alpha):
         n[-1], d[-1], f_x.a, f_x.b, f_x.log_c, -jnp.inf, -jnp.inf
     )
 
-    # lls = []
-    # betas = []
-    # f_x = beta0
-    # for i in range(1, 1 + len(Ne)):
-    #     f_x, (_, ll) = _f(
-    #         f_x, {"Ne": Ne[-i], "n": n[-i - 1], "d": d[-i - 1], "s": s[-i]}
-    #     )
-    #     betas.append(f_x)
-    #     lls.append(ll)
-
-    _, (betas, lls) = jax.lax.scan(
-        _f, beta0, {"Ne": Ne, "n": n[:-1], "d": d[:-1], "s": s}, reverse=True
-    )
+    if False:
+        lls = []
+        betas = []
+        f_x = beta0
+        for i in range(1, 1 + len(Ne)):
+            f_x, (_, ll) = _f(
+                f_x, {"Ne": Ne[-i], "n": n[-i - 1], "d": d[-i - 1], "s": s[-i]}
+            )
+            betas.append(f_x)
+            lls.append(ll)
+    else:
+        _, (betas, lls) = jax.lax.scan(
+            _f, beta0, {"Ne": Ne, "n": n[:-1], "d": d[:-1], "s": s}, reverse=True
+        )
 
     return (betas, beta0), jnp.concatenate([jnp.array(lls), ll0[None]])
 
@@ -279,8 +282,8 @@ def _tree_unstack(tree):
     return new_trees
 
 
-def loglik(s, Ne, obs, prior, alpha=0.01):
-    betas, lls = forward(s, Ne, obs, prior, alpha)
+def loglik(s, Ne, obs, prior):
+    betas, lls = forward(s, Ne, obs, prior)
     return lls.sum()
 
 
@@ -293,7 +296,12 @@ def _construct_prior(prior: Union[int, BetaMixture]) -> BetaMixture:
 
 @partial(jit, static_argnums=(3, 4))
 def sample_paths(
-    s, Ne, obs, k, alpha=0.0, seed=1, prior: Union[int, BetaMixture] = BetaMixture.uniform(100)
+    s,
+    Ne,
+    obs,
+    k,
+    seed=1,
+    prior: Union[int, BetaMixture] = BetaMixture.uniform(100),
 ):
     "draw k samples from the posterior allele frequency distribution"
     rng = jax.random.PRNGKey(seed)
@@ -316,7 +324,7 @@ def sample_paths(
         )
         return (s, x)
 
-    (betas, beta_n), _ = forward(s, Ne, obs, prior, alpha)
+    (betas, beta_n), _ = forward(s, Ne, obs, prior)
 
     beta0 = tree_map(lambda a: a[0], betas)
     beta1n = tree_multimap(
@@ -329,10 +337,7 @@ def sample_paths(
 
         rng, s1 = tup
         rng, sub1, sub2 = jax.random.split(rng, 3)
-        s2, x = _sample_spikebeta(beta, sub1, s1)
-        # switch mixing components w.p. alpha
-        i = jax.random.categorical(sub2, jnp.array([jnp.log1p(-alpha), jnp.log(alpha)]))
-        s = jnp.array([s1, s2])[i]
+        s, x = _sample_spikebeta(beta, sub1, s1)
         return (rng, s), x
 
     def _g(rng, _):

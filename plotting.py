@@ -36,11 +36,11 @@ def bias_variance(y, truth):
     truth: vector N selection values
     """
     truth = np.array(truth)
-    s_est=np.array(y)
+    s_est = np.array(y)
     s_avg = np.mean(y, axis=0)
 
     rmbias = np.sqrt(np.average((s_avg - truth) ** 2))
     rmvar = np.sqrt(np.average((s_est - s_avg) ** 2))
     rmse = np.sqrt(np.average((s_est - truth) ** 2))
- 
+
     return (rmbias, rmvar, rmse)

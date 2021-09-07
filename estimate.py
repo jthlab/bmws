@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import numpy as np
 import scipy.optimize
 import scipy.stats
-from jax import jit, vmap, value_and_grad
+from jax import jit, vmap, value_and_grad, lax, grad
 from jax.experimental.host_callback import id_print
 
 import betamix
@@ -21,23 +21,127 @@ from betamix import loglik
 logger = logging.getLogger(__name__)
 
 
-def _obj(s, Ne, obs, prior, alpha, lam):
-    ll = loglik(s, Ne, obs, prior, alpha)
+def _obj(s, Ne, obs, prior, lam):
+    ll = loglik(s, Ne, obs, prior)
     return -ll + lam * (jnp.diff(s) ** 2).sum()
 
 
 obj = jit(value_and_grad(_obj))
 
 
+def soft_xlogy(x, y):
+    x_ok = ~jnp.isclose(x, 0.0)
+    safe_x = jnp.where(x_ok, x, 1.0)
+    safe_y = jnp.where(x_ok, y, 1.0)
+    return jnp.where(x_ok, lax.mul(safe_x, lax.log(safe_y)), jnp.zeros_like(x))
+
+
+def soft_xlog1py(x, y):
+    x_ok = ~jnp.isclose(x, 0.0)
+    safe_x = jnp.where(x_ok, x, 1.0)
+    safe_y = jnp.where(x_ok, y, 1.0)
+    ret = jnp.where(x_ok, lax.mul(safe_x, lax.log1p(safe_y)), jnp.zeros_like(x))
+    # ret, _ = id_print(
+    #     (ret, {"x": x, "y": y, "safe_x": safe_x, "safe_y": safe_y, "x_ok": x_ok}),
+    #     what="ret",
+    # )
+    return ret
+
+
+@partial(jit, static_argnums=(3, 4))
+def empirical_bayes(
+    s, obs, Ne, M, num_steps=100, learning_rate=1.0
+) -> betamix.BetaMixture:
+    "maximize marginal likelihood w/r/t prior hyperparameters assuming neutrality"
+    from jax.experimental.optimizers import adagrad
+    from jax.scipy.stats import beta
+
+    opt_init, opt_update, get_params = adagrad(learning_rate)
+    params = jnp.zeros(2)
+    opt_state = opt_init(params)
+
+    def beta_pdf(x, a, b):
+        from jax.scipy.special import betaln, xlogy, xlog1py
+
+        # assumes a, b >= 1.
+        x01 = jnp.isclose(x, 0.0) | jnp.isclose(x, 1.0)
+        safe_x = jnp.where(x01, 0.5, x)
+        return jnp.where(
+            x01,
+            0.0,
+            jnp.exp(xlogy(a - 1, safe_x) + xlog1py(b - 1, -safe_x) - betaln(a, b)),
+        )
+
+    def interp(a, b):
+        return betamix.BetaMixture.interpolate(
+            lambda x: beta_pdf(x, a, b), M, norm=True
+        )
+
+    def loss_fn(log_ab):
+        a, b = 1.0 + jnp.exp(log_ab)
+        # a, b = id_print((a, b), what="ab")
+        prior = interp(a, b)
+        return _obj(s, Ne, obs, prior, 0.0)
+
+    def step(i, opt_state):
+        value, grads = value_and_grad(loss_fn)(get_params(opt_state))
+        # value, grads = id_print((value, grads), what="vg")
+        opt_state = opt_update(i, grads, opt_state)
+        return opt_state
+
+    opt_state = lax.fori_loop(0, num_steps, step, opt_state)
+    # for i in range(num_steps):
+    #     opt_state = step(i, opt_state)
+    a_star, b_star = 1.0 + jnp.exp(get_params(opt_state))
+    return interp(a_star, b_star)
+
+
+@partial(jit, static_argnums=5)
+def jittable_estimate(obs, Ne, lam, prior, learning_rate=0.1, num_steps=100):
+    from jax.experimental.optimizers import adagrad
+
+    opt_init, opt_update, get_params = adagrad(learning_rate)
+    params = jnp.zeros(len(Ne))
+    opt_state = opt_init(params)
+
+    @value_and_grad
+    def loss_fn(s):
+        return _obj(s, Ne, obs, prior, lam)
+
+    def step(i, opt_state):
+        value, grads = loss_fn(get_params(opt_state))
+        opt_state = opt_update(i, grads, opt_state)
+        return opt_state
+
+    opt_state = lax.fori_loop(0, num_steps, step, opt_state)
+
+    return get_params(opt_state)
+
+
+def estimate_em(
+    obs,
+    Ne,
+    em_iterations: int = 3,
+    lam: float = 1.0,
+    solver_options: dict = {},
+):
+    M = 100
+    s = np.zeros(len(obs) - 1)
+    for i in range(em_iterations):
+        prior = empirical_bayes(s, obs, Ne, M)
+        s = estimate(obs, Ne, lam=lam, prior=prior, solver_options=solver_options)
+
+    return s,prior
+
+    
 def estimate(
     obs,
     Ne,
     lam: float = 1.0,
-    prior: Union[int, betamix.BetaMixture] = betamix.BetaMixture.uniform(100),
-    alpha: float = 0.0,
+    prior: Union[int, betamix.BetaMixture] = 100,
     solver_options: dict = {},
 ):
-    args = (Ne, obs, prior, alpha)
+    args = (Ne, obs, prior)
     x0 = np.zeros(len(obs) - 1)
     kwargs = {}
     optimizer = "L-BFGS-B"
