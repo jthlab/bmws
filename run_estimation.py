@@ -24,6 +24,8 @@ def parse_options():
                         "output file")
     parser.add_argument('-l', '--lam', type=float, default=5, help=
                         "log10(lambda) to use; default 5")
+    parser.add_argument('-e', '--em', type=int, default=3, help=
+                        "Number of EM iterations; default 3")
     parser.add_argument('-g', '--gen', type=float, default=29, help=
                         "generation time in years")
     parser.add_argument('-n', '--Ne', type=float, default=10000, help=
@@ -38,7 +40,7 @@ def example(options):
     Run simulated example to test installation
     """
     s_mdl = {"s": [0.01] * 100, "h": [0.5] * 100, "f0": 0.1}
-    this_res = sim.sim_and_fit(s_mdl, seed=12345, lam=1e5, Ne=1e4)
+    this_res = sim.sim_and_fit(s_mdl,seed=12345, lam=1e5, Ne=1e4, em_iterations=3)
     print(this_res["s_hat"])
     if abs(np.mean(this_res["s_hat"])-0.01)<0.005:
         print("Looks ok!")
@@ -134,23 +136,6 @@ def gt_to_obs(ids, gt, meta):
 
 ################################################################################
 
-def makeprior(obs):
-    """
-    Beta prior
-    """
-    M = 200
-    prior = BetaMixture.uniform(M)
-    f = np.mean([x[1] / x[0] for x in obs if x[0] > 0])
-    b = 4
-    a = b * f / (1 - f)
-    dens = [beta.pdf((x + 1) / (M + 1), a, b) for x in range(M)]
-    total = np.sum(dens)
-    dens = [x / total for x in dens]
-    prior = prior._replace(log_c=np.log(dens))
-    return(prior)
-
-################################################################################
-
 def main(options):
     if options.example:
         print("Running example; ignoring all input parameters")
@@ -167,7 +152,7 @@ def main(options):
         obs=gt_to_obs(ids, gt, meta)
         Ne = np.full(len(obs) - 1, options.Ne)
         prior=makeprior(obs)
-        res = estimate.estimate(obs, Ne, lam=lam, prior=prior)
+        res, prior = estimate.estimate(obs, Ne, lam=lam, em_iterations=options.em_iterations)
 
         sl1=np.sqrt(np.mean(res*res))
         sl2=np.sqrt(np.mean((res-np.mean(res))**2))

@@ -118,6 +118,22 @@ def jittable_estimate(obs, Ne, lam, prior, learning_rate=0.1, num_steps=100):
     return get_params(opt_state)
 
 
+def estimate_em(
+    obs,
+    Ne,
+    em_iterations: int = 3,
+    lam: float = 1.0,
+    solver_options: dict = {},
+):
+    M = 100
+    s = np.zeros(len(obs) - 1)
+    for i in range(em_iterations):
+        prior = empirical_bayes(s, obs, Ne, M)
+        s = estimate(obs, Ne, lam=lam, prior=prior, solver_options=solver_options)
+
+    return s,prior
+
+    
 def estimate(
     obs,
     Ne,
