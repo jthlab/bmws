@@ -13,8 +13,8 @@ simulations.ipynb), which will generate Figure 3.
 
 ### Data analysis
 
-- Genotype data and intermediate files can be downloaded from this
-  link. Untar the directory and move its contents to the empty data/
+- Genotype data and intermediate files can be downloaded from [this
+  link](https://upenn.box.com/s/qtf6s2504ib5yjm20w740xbp32cd5jck). Untar the directory and move its contents to the empty data/
   directory in this repository. The README in the directory describes
   the files and their sources. Please read that file before using
   these data.
