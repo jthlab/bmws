@@ -5,7 +5,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 from betamix import sample_paths, BetaMixture
 from scipy.stats import beta
-import pdb
 
 ################################################################################
 
@@ -147,12 +146,11 @@ def main(options):
     ids=data.ids
 
     lam=10 ** options.lam
-    
     for snpinfo,gt in data:
+
         obs=gt_to_obs(ids, gt, meta)
         Ne = np.full(len(obs) - 1, options.Ne)
-        prior=makeprior(obs)
-        res, prior = estimate.estimate_em(obs, Ne, lam=lam, em_iterations=options.em_iterations)
+        res, prior = estimate.estimate_em(obs, Ne, lam=lam, em_iterations=options.em)
 
         smn=np.mean(res)        
         sl1=np.sqrt(np.mean(res*res))
