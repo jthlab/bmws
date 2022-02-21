@@ -1,6 +1,0 @@
-def make_ext(modname, pyxfilename):
-    from distutils.extension import Extension
-
-    return Extension(
-        name=modname, sources=[pyxfilename, "flsa.c"], extra_compile_args=["-std=c99"]
-    )
