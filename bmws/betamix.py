@@ -1,5 +1,5 @@
 "beta mixture with spikes model"
-from functools import lru_cache, partial
+from functools import partial
 from typing import NamedTuple, Union
 
 import jax

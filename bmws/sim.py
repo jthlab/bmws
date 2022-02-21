@@ -5,8 +5,8 @@ from typing import Dict, Union
 
 import numpy as np
 
-from common import f_sh
-from estimate import empirical_bayes, estimate, jittable_estimate
+from bmws.common import f_sh
+from bmws.estimate import empirical_bayes, estimate, jittable_estimate
 
 
 def sim_wf(

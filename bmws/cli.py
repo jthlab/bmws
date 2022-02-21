@@ -137,7 +137,7 @@ def gt_to_obs(ids, gt, meta):
     return obs
 
 
-def bmws_main(arg_list):
+def bmws_main(arg_list=None):
     parser = get_parser()
     options = parser.parse_args(arg_list)
     if options.example:
