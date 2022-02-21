@@ -1,19 +1,15 @@
+"beta mixture with spikes model"
 from functools import lru_cache, partial
 from typing import NamedTuple, Union
 
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax import (
-    jit,
-    vmap,
-    tree_multimap,
-    tree_map,
-)
+from jax import jit, tree_map, tree_multimap, vmap
 from jax.experimental.host_callback import id_print
 
 id_print = lambda x, **kwargs: x
-from jax.scipy.special import betaln, xlogy, xlog1py, gammaln, logsumexp
+from jax.scipy.special import betaln, gammaln, logsumexp, xlog1py, xlogy
 
 
 def _logbinom(n, k):
@@ -164,17 +160,9 @@ class SpikedBeta(NamedTuple):
         plt.bar(1.0, self.p1, 0.05, alpha=0.2, color="tab:red")
 
 
-# @partial(jit, static_argnums=4)
-
-
 def transition(f: SpikedBeta, s: float, Ne: float, n: int, d: int):
     """Given a prior distribution on population allele frequency, compute posterior after
     observing data at dt generations in the future"""
-
-    # compute moments at time dt and transition the latent population allele frequencies
-
-    # this call is jitted
-
     # var(X') = E var(X'|X) + var E(X' | X)
     #         ~= var(X'|X = EX) + var E(X' | X)
     a = f.f_x.a
@@ -261,25 +249,6 @@ def forward(s, Ne, obs, prior):
         )
 
     return (betas, beta0), jnp.concatenate([jnp.array(lls), ll0[None]])
-
-
-def _tree_unstack(tree):
-    """Takes a tree and turns it into a list of trees. Inverse of tree_stack.
-    For example, given a tree ((a, b), c), where a, b, and c all have first
-    dimension k, will make k trees
-    [((a[0], b[0]), c[0]), ..., ((a[k], b[k]), c[k])]
-    Useful for turning the output of a vmapped function into normal objects.
-    """
-    from jax.tree_util import tree_flatten
-
-    leaves, treedef = tree_flatten(tree)
-    n_trees = leaves[0].shape[0]
-    new_leaves = [[] for _ in range(n_trees)]
-    for leaf in leaves:
-        for i in range(n_trees):
-            new_leaves[i].append(leaf[i])
-    new_trees = [treedef.unflatten(l) for l in new_leaves]
-    return new_trees
 
 
 def loglik(s, Ne, obs, prior):
