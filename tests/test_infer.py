@@ -1,5 +1,6 @@
-from common import Observation
-from estimate import posterior_decoding, sample_paths, estimate
+from bmws.common import Observation
+from bmws.estimate import estimate, posterior_decoding, sample_paths
+from bmws.sim import sim_and_fit, sim_wf
 
 mdls = [
     {"s": [0.01] * 100, "h": [0.5] * 100, "f0": 0.1},
@@ -10,8 +11,6 @@ mdls = [
 
 import numpy as np
 import pytest
-
-from sim import sim_and_fit, sim_wf
 
 
 @pytest.fixture
