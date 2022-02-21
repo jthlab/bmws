@@ -9,6 +9,7 @@ import scipy.optimize
 import scipy.stats
 from jax import grad, jit, lax, value_and_grad, vmap
 from jax.experimental.host_callback import id_print
+from jax.example_libraries.optimizers import adagrad
 
 import bmws.betamix
 from bmws.betamix import BetaMixture
@@ -28,7 +29,6 @@ obj = jit(value_and_grad(_obj))
 @partial(jit, static_argnums=(3, 4))
 def empirical_bayes(s, obs, Ne, M, num_steps=100, learning_rate=1.0) -> BetaMixture:
     "maximize marginal likelihood w/r/t prior hyperparameters assuming neutrality"
-    from jax.experimental.optimizers import adagrad
     from jax.scipy.stats import beta
 
     opt_init, opt_update, get_params = adagrad(learning_rate)
@@ -71,7 +71,6 @@ def empirical_bayes(s, obs, Ne, M, num_steps=100, learning_rate=1.0) -> BetaMixt
 
 @partial(jit, static_argnums=5)
 def jittable_estimate(obs, Ne, lam, prior, learning_rate=0.1, num_steps=100):
-    from jax.experimental.optimizers import adagrad
 
     opt_init, opt_update, get_params = adagrad(learning_rate)
     params = jnp.zeros(len(Ne))
