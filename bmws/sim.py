@@ -6,7 +6,7 @@ from typing import Dict, Union
 import numpy as np
 
 from common import f_sh
-from estimate import estimate, empirical_bayes, jittable_estimate
+from estimate import empirical_bayes, estimate, jittable_estimate
 
 
 def sim_wf(

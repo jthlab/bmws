@@ -1,4 +1,3 @@
-#!/usr/bin/env python
 import logging
 from functools import partial
 from typing import List, Union
@@ -8,15 +7,13 @@ import jax.numpy as jnp
 import numpy as np
 import scipy.optimize
 import scipy.stats
-from jax import jit, vmap, value_and_grad, lax, grad
+from fusedlasso import fusedlasso
+from jax import grad, jit, lax, value_and_grad, vmap
 from jax.experimental.host_callback import id_print
 
 import betamix
-import hmm
-from common import Observation, PosteriorDecoding
-from fusedlasso import fusedlasso
-from hmm import forward_backward, stochastic_traceback
 from betamix import loglik
+from common import Observation, PosteriorDecoding
 
 logger = logging.getLogger(__name__)
 
@@ -61,7 +58,7 @@ def empirical_bayes(
     opt_state = opt_init(params)
 
     def beta_pdf(x, a, b):
-        from jax.scipy.special import betaln, xlogy, xlog1py
+        from jax.scipy.special import betaln, xlog1py, xlogy
 
         # assumes a, b >= 1.
         x01 = jnp.isclose(x, 0.0) | jnp.isclose(x, 1.0)
@@ -131,9 +128,9 @@ def estimate_em(
         prior = empirical_bayes(s, obs, Ne, M)
         s = estimate(obs, Ne, lam=lam, prior=prior, solver_options=solver_options)
 
-    return s,prior
+    return s, prior
 
-    
+
 def estimate(
     obs,
     Ne,
@@ -209,33 +206,3 @@ def sample_paths(
     M: int = 100,
 ):
     return betamix.sample_paths(s, obs, Ne, k, M)
-
-
-# def posterior_decoding(
-#     data: List[Observation], s: np.ndarray, discr_or_M: Union[np.ndarray, int]
-# ):
-#     """Find the posterior decoding given model parameters.
-#
-#     Args:
-#         data: The observed data.
-#         s: The selection coefficients _between_ each time point.
-#         discr_or_M: A discretization (created by hmm.make_discr), or the number of bins used to discretize the allele
-#             frequency space.
-#
-#     Returns:
-#         Posterior decoding matrix gamma.
-#
-#     Notes:
-#         Assuming that T observations are made at time points t=[t[0],...,t[T-1]], the dimensions of
-#         gamma will be [M, T-1].
-#
-#     """
-#     Ne, obs, times = _prep_data(data)
-#     assert len(times) == len(s) + 1
-#     if isinstance(discr_or_M, int):
-#         M = discr_or_M
-#         discr = hmm.make_discr(Ne, M)
-#     else:
-#         discr = discr_or_M
-#     res = forward_backward(np.array(s), times, Ne, obs, discr, False)
-#     return PosteriorDecoding(t=times, gamma=res["gamma"], hidden_states=discr, Ne=Ne)
