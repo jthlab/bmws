@@ -7,48 +7,26 @@ import jax.numpy as jnp
 import numpy as np
 import scipy.optimize
 import scipy.stats
-from fusedlasso import fusedlasso
 from jax import grad, jit, lax, value_and_grad, vmap
 from jax.experimental.host_callback import id_print
 
-import betamix
-from betamix import loglik
-from common import Observation, PosteriorDecoding
+import bmws.betamix
+from bmws.betamix import BetaMixture
+from bmws.common import Observation, PosteriorDecoding
 
 logger = logging.getLogger(__name__)
 
 
 def _obj(s, Ne, obs, prior, lam):
-    ll = loglik(s, Ne, obs, prior)
+    ll = bmws.betamix.loglik(s, Ne, obs, prior)
     return -ll + lam * (jnp.diff(s) ** 2).sum()
 
 
 obj = jit(value_and_grad(_obj))
 
 
-def soft_xlogy(x, y):
-    x_ok = ~jnp.isclose(x, 0.0)
-    safe_x = jnp.where(x_ok, x, 1.0)
-    safe_y = jnp.where(x_ok, y, 1.0)
-    return jnp.where(x_ok, lax.mul(safe_x, lax.log(safe_y)), jnp.zeros_like(x))
-
-
-def soft_xlog1py(x, y):
-    x_ok = ~jnp.isclose(x, 0.0)
-    safe_x = jnp.where(x_ok, x, 1.0)
-    safe_y = jnp.where(x_ok, y, 1.0)
-    ret = jnp.where(x_ok, lax.mul(safe_x, lax.log1p(safe_y)), jnp.zeros_like(x))
-    # ret, _ = id_print(
-    #     (ret, {"x": x, "y": y, "safe_x": safe_x, "safe_y": safe_y, "x_ok": x_ok}),
-    #     what="ret",
-    # )
-    return ret
-
-
 @partial(jit, static_argnums=(3, 4))
-def empirical_bayes(
-    s, obs, Ne, M, num_steps=100, learning_rate=1.0
-) -> betamix.BetaMixture:
+def empirical_bayes(s, obs, Ne, M, num_steps=100, learning_rate=1.0) -> BetaMixture:
     "maximize marginal likelihood w/r/t prior hyperparameters assuming neutrality"
     from jax.experimental.optimizers import adagrad
     from jax.scipy.stats import beta
@@ -70,9 +48,7 @@ def empirical_bayes(
         )
 
     def interp(a, b):
-        return betamix.BetaMixture.interpolate(
-            lambda x: beta_pdf(x, a, b), M, norm=True
-        )
+        return BetaMixture.interpolate(lambda x: beta_pdf(x, a, b), M, norm=True)
 
     def loss_fn(log_ab):
         a, b = 1.0 + jnp.exp(log_ab)
@@ -135,7 +111,7 @@ def estimate(
     obs,
     Ne,
     lam: float = 1.0,
-    prior: Union[int, betamix.BetaMixture] = 100,
+    prior: Union[int, BetaMixture] = 100,
     solver_options: dict = {},
 ):
     args = (Ne, obs, prior)
@@ -205,4 +181,4 @@ def sample_paths(
     k: int,
     M: int = 100,
 ):
-    return betamix.sample_paths(s, obs, Ne, k, M)
+    return bmws.betamix.sample_paths(s, obs, Ne, k, M)
