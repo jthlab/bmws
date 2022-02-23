@@ -215,10 +215,16 @@ def _binom_sampling(n, d, a, b, log_c, log_p0, log_p1):
 # @partial(jit, static_argnums=3)
 def forward(s, Ne, obs, prior):
     """
-    s: [T - 1] selection coefficient at each time point
-    Ne: [T - 1] diploid effective population size at each time point
-    obs [T, 2]: (sample size, # derived alleles) observed at each time point
-    times: [T] number of generations before present when each observation was sampled, sorted descending.
+    Run the forward algorithm for the BMwS model.
+
+    Args:
+        s: selection coefficient at each time point (T - 1,)
+        Ne:  diploid effective population size at each time point (T - 1,)
+        obs: (sample size, # derived alleles) observed at each time point (T, 2)
+        times: number of generations before present when each observation was sampled, sorted descending (T,)
+
+    Returns:
+        Tuple (betas, lls). betas are the filtering distributions, and lls are the conditional likelihoods.
     """
     n, d = obs.T
 
@@ -265,14 +271,32 @@ def _construct_prior(prior: Union[int, BetaMixture]) -> BetaMixture:
 
 @partial(jit, static_argnums=(3, 4))
 def sample_paths(
-    s,
-    Ne,
-    obs,
-    k,
-    seed=1,
+    s: np.ndarray,
+    Ne: np.ndarray,
+    obs: np.ndarray,
+    k: int,
+    seed: int=1,
     prior: Union[int, BetaMixture] = BetaMixture.uniform(100),
 ):
-    "draw k samples from the posterior allele frequency distribution"
+    """
+    Sample allele frequency paths from posterior distribution.
+
+    Args:
+        s: selection coefficient at each time point (T - 1,)
+        Ne:  diploid effective population size at each time point (T - 1,)
+        obs: (sample size, # derived alleles) observed at each time point (T, 2)
+        k: number of paths to sample
+        seed: seed for random number generator
+        prior: prior on initial allele frequency
+
+    Returns:
+        Array of shape (k, T), containing k samples from the allele frequency posterior.
+
+    Notes:
+        - obs[0] denotes the most recent observation; obs[-1] is the most ancient.
+        - s and Ne control the Wright-Fisher transitions that occur *between* each time points.
+          Therefore, there they have one less entry than the number of observations.
+    """
     rng = jax.random.PRNGKey(seed)
 
     prior = _construct_prior(prior)
@@ -302,8 +326,6 @@ def sample_paths(
     betas = tree_multimap(lambda a, b: jnp.concatenate([a, b[None]]), betas, beta_n)
 
     def _f(tup, beta):
-        from jax.experimental.host_callback import id_print
-
         rng, s1 = tup
         rng, sub1, sub2 = jax.random.split(rng, 3)
         s, x = _sample_spikebeta(beta, sub1, s1)
