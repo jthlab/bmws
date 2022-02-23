@@ -171,13 +171,3 @@ def _prep_data(data):
     assert np.all(obs[:, 1] <= obs[:, 0])
     assert np.all(obs[:, 1] >= 0)
     return np.array(Ne), obs, times
-
-
-def sample_paths(
-    s: np.ndarray,
-    obs,
-    Ne,
-    k: int,
-    M: int = 100,
-):
-    return bmws.betamix.sample_paths(s, obs, Ne, k, M)

@@ -65,6 +65,7 @@ def sim_and_fit(
     k=10,  # sampling interval - either an integer, or an iterable of sampling times.
     Ne_fit=None,  # Ne to use for estimation (if different to that used for simulation)
     em_iterations=3,  # use empirical bayes to infer prior hyperparameters
+    M=100,  # number of mixture components
     **kwargs
 ):
     # Parameters
@@ -98,7 +99,6 @@ def sim_and_fit(
     ]
 
     # setup prior
-    M = 100
     s = np.zeros(T - 1)
     for i in range(em_iterations):
         logger.info("EM iteration %d", i)
