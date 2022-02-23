@@ -1,3 +1,5 @@
+import jax
+jax.config.update('jax_enable_x64', True)
 import logging
 logging.getLogger('absl').setLevel(logging.ERROR)
 logging.basicConfig(level=logging.INFO)
