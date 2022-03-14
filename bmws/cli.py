@@ -1,6 +1,7 @@
 # Run analysis scripted
 import argparse
 import gzip
+import sys
 
 import matplotlib.pyplot as plt
 import numpy as np
@@ -13,34 +14,45 @@ from bmws.betamix import BetaMixture, sample_paths
 
 def get_parser():
     parser = argparse.ArgumentParser()
-
-    parser.add_argument(
-        "-x",
-        dest="example",
-        action="store_true",
+    subparsers = parser.add_subparsers(title="subcommands")
+    subparsers.required = True
+    test = subparsers.add_parser(
+        "test",
         help="run a simulated example to test installation",
     )
-    parser.add_argument(
-        "-m", "--meta", type=str, default="", help="meta-information file"
+    test.set_defaults(func=example)
+
+    analyze = subparsers.add_parser(
+        "analyze",
+        help="analyze data",
     )
-    parser.add_argument("-v", "--vcf", type=str, default="", help="vcf input files")
-    parser.add_argument("-o", "--out", type=str, default="", help="output file")
-    parser.add_argument(
+    analyze.set_defaults(func=analyze)
+
+    analyze.add_argument("vcf", type=str, default="", help="vcf input files")
+    analyze.add_argument("meta", type=str, help="meta-information file")
+    analyze.add_argument(
+        "-o",
+        "--out",
+        type=argparse.FileType("w"),
+        default=sys.stdout,
+        help="output file",
+    )
+    analyze.add_argument(
         "-l", "--lam", type=float, default=5, help="log10(lambda) to use; default 5"
     )
-    parser.add_argument(
+    analyze.add_argument(
         "-e", "--em", type=int, default=3, help="Number of EM iterations; default 3"
     )
-    parser.add_argument(
+    analyze.add_argument(
         "-g", "--gen", type=float, default=29, help="generation time in years"
     )
-    parser.add_argument(
+    analyze.add_argument(
         "-n", "--Ne", type=float, default=10000, help="Effective population size"
     )
     return parser
 
 
-def example(options):
+def example(args):
     """
     Run simulated example to test installation
     """
@@ -53,7 +65,7 @@ def example(options):
         print("Might not be ok")
 
 
-def read_meta_information(options):
+def read_meta_information(args):
     """
     Read in the date information
     First column, sample ID
@@ -62,13 +74,13 @@ def read_meta_information(options):
     meta = {}
     maxdate = 0
 
-    with open(options.meta) as metafile:
+    with open(args.meta) as metafile:
         for line in metafile:
             if line[0] == "#":
                 continue
             else:
                 bits = line[:-1].split()
-                gen = int(float(bits[1]) / options.gen)
+                gen = int(float(bits[1]) / args.gen)
                 meta[bits[0]] = gen
                 maxdate = max(gen, maxdate)
 
@@ -139,23 +151,20 @@ def gt_to_obs(ids, gt, meta):
 
 def bmws_main(arg_list=None):
     parser = get_parser()
-    options = parser.parse_args(arg_list)
-    if options.example:
-        print("Running example; ignoring all input parameters")
-        example(options)
-        return
+    args = parser.parse_args(arg_list)
+    args.func(args)
 
-    meta = read_meta_information(options)
-    data = vcf(options.vcf)
+
+def analyze(args):
+    meta = read_meta_information(args)
+    data = vcf(args.vcf)
     ids = data.ids
 
-    lam = 10 ** options.lam
+    lam = 10 ** args.lam
     for snpinfo, gt in data:
         obs = gt_to_obs(ids, gt, meta)
-        Ne = np.full(len(obs) - 1, options.Ne)
-        res, prior = bmws.estimate.estimate_em(
-            obs, Ne, lam=lam, em_iterations=options.em
-        )
+        Ne = np.full(len(obs) - 1, args.Ne)
+        res, prior = bmws.estimate.estimate_em(obs, Ne, lam=lam, em_iterations=args.em)
 
         smn = np.mean(res)
         sl1 = np.sqrt(np.mean(res * res))
@@ -171,5 +180,6 @@ def bmws_main(arg_list=None):
                     str(round(sl1, 6)),
                     str(round(sl2, 6)),
                 ]
-            )
+            ),
+            file=args.out,
         )

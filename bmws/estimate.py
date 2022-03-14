@@ -28,7 +28,7 @@ obj = jit(value_and_grad(_obj))
 
 @partial(jit, static_argnums=(3, 4))
 def empirical_bayes(s, obs, Ne, M, num_steps=100, learning_rate=1.0) -> BetaMixture:
-    "maximize marginal likelihood w/r/t prior hyperparameters assuming neutrality"
+    "maximize marginal likelihood w/r/t prior hyperparameters"
     from jax.scipy.stats import beta
 
     opt_init, opt_update, get_params = adagrad(learning_rate)
