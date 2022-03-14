@@ -20,7 +20,7 @@ simulations.ipynb), which will generate Figure 3.
   these data.
 
 - The genome-wide analysis can be run using the script
-  [run_estimation.py](run_estimation.py) (run with -h option to see arguments). You could run the entire
+  [run_estimation.py](scripts/run_estimation.py) (run with -h option to see arguments). You could run the entire
   analysis described in the paper using the command `python run_estimation.py -v
   data/allbrit.vcf.gz -m data/allbrit.meta -l 4.5 -o out`. The
   analysis can easily be parallelized by splitting the vcf file into
@@ -30,7 +30,7 @@ simulations.ipynb), which will generate Figure 3.
   data/s_scan_all_brit.txt.gz, and the randomized results in the file
   data/s_scan_all_brit_random.txt.gz.
 
-- You can generate Figures 2, 4, 5 and 6 (in the plots/ directory) by running the following
+- You can generate Figures 2, 4, 5 and 6 from the manuscript by running the following
 scripts:
   - [plot_brit.R](plot_brit.R)
   - [plot_scan.R](plot_scan.R)
