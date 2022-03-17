@@ -1,7 +1,9 @@
 ## Beta-mixture-with-spikes model
 This repository implements the method described in:
 
-> INSERT CITATION HERE
+> Direct detection of natural selection in Bronze Age Britain
+> Iain Mathieson, Jonathan Terhorst
+> bioRxiv 2022.03.14.484330; doi: [https://doi.org/10.1101/2022.03.14.484330](https://doi.org/10.1101/2022.03.14.484330)
 
 Install it by typing 
 ```
