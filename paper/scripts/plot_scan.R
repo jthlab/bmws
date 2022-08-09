@@ -10,7 +10,7 @@ min.freq <- 0.1
 
 cat("load\n")
 
-data<-read.table("data/s_scan_all_brit.txt.gz", as.is=T, header=F)
+data<-read.table("../data/s_scan_all_brit.txt.gz", as.is=T, header=F)
 colnames(data) <- c("CHR", "POS", "ID", "REF", "ALT", "FREQ", "S.HAT", "SL1", "SL2")
 cat(paste0(sum(data$FREQ<=min.freq | data$FREQ>=(1-min.freq), na.rm=T), "\n"))
 data <- data[data$FREQ>min.freq & data$FREQ<(1-min.freq),]
@@ -21,7 +21,7 @@ data <- data[!is.na(data$CHR),]
 ## data$SL1 <- data$S.HAT^2
 ## data$SL2 <- data$SL2^2-data$SL1
 
-random<-read.table("data/s_scan_all_brit_random.txt.gz", as.is=T, header=F)
+random<-read.table("../data/s_scan_all_brit_random.txt.gz", as.is=T, header=F)
 colnames(random) <- c("CHR", "POS", "ID", "REF", "ALT", "FREQ", "S.HAT", "SL1", "SL2")
 random <- random[random$FREQ>min.freq & random$FREQ<(1-min.freq),]
 random <- random[!is.na(random$CHR),]
@@ -29,13 +29,13 @@ random <- random[!is.na(random$CHR),]
 ## random$SL2 <- random$SL2^2-random$SL1
 
 cat("missing\n")
-lmiss <- read.table("data/allbrit_ancientOnly.lmiss", as.is=TRUE, header=TRUE)
+lmiss <- read.table("../data/allbrit_ancientOnly.lmiss", as.is=TRUE, header=TRUE)
 remove <- lmiss[lmiss$F_MISS>0.90,"SNP"]
 data<-data[!(data$ID %in% remove),]
 random<-random[!(random$ID %in% remove),]
 cat(paste0(length(remove), "\n"))
 
-frq <- read.table("data/allbrit_ancientOnly.frq", as.is=TRUE, header=TRUE)
+frq <- read.table("../data/allbrit_ancientOnly.frq", as.is=TRUE, header=TRUE)
 remove <- frq[frq$MAF==0,"SNP"]
 data<-data[!(data$ID %in% remove),]
 random<-random[!(random$ID %in% remove),]
@@ -72,7 +72,7 @@ for(chr in 1:22){
 }
 combine <- do.call(rbind, combine)
 cat("genes\n")
-genes <- read.table("data/refseq.allgene.txt", as.is=TRUE, header=TRUE)
+genes <- read.table("../data/refseq.allgene.txt", as.is=TRUE, header=TRUE)
 genes <- genes[!grepl("^MIR", genes$name),]
 genes <- genes[!grepl("^ORF", genes$name),]
 genes <- genes[!grepl("^SNORA", genes$name),]
@@ -116,7 +116,7 @@ cplt <- combine
 cplt <- cplt[!cplt$neargene%in%c("LINC00955", "HLA1", "HLA3"),]
 cplt[cplt$neargene=="HLA2","neargene"] <- "HLA"
 
-tiff("plots/scan_mh.tiff", units="mm", width=172, height=57, res=300, compression="lzw")
+tiff("scan_mh.tiff", units="mm", width=172, height=57, res=300, compression="lzw")
 par(list(mar=c(2.5, 4.4, 0.4, 0.1), cex=0.5))
 MH.plot(db)
 text(cplt$xpos, -log10(cplt$P1), cplt$neargene, adj=-0.25, srt=90)
@@ -124,7 +124,7 @@ abline(h=p.value.cutoff, col="red", lty=3)
 ## abline(h=p.value.cutoff.hi, col="red", lty=3)
 dev.off()
 
-tiff("plots/scan_qq.tiff", units="mm", width=57, height=57, res=300, compression="lzw")
+tiff("scan_qq.tiff", units="mm", width=57, height=57, res=300, compression="lzw")
 par(list(mar=c(4.4, 4.4, 0.4, 0.1), cex=0.5))
 qqPlotOfPValues(data.bin$P1, cex.pts=2, xlim=c(0,6), ylim=c(0,20), col="darkblue" )
 qqPlotOfPValues(random.bin$P2, cex.pts=2, xlim=c(0,6), col="darkred", add=T )
@@ -134,7 +134,7 @@ abline(h=p.value.cutoff, col="red", lty=3)
 dev.off()
 
 #SDS comparison.
-sds<-read.table("data/SDS_UK10K_n3195_release_Sep_19_2016.tab.gz", as.is=TRUE, header=TRUE)
+sds<-read.table("../data/SDS_UK10K_n3195_release_Sep_19_2016.tab.gz", as.is=TRUE, header=TRUE)
 sdsxdata<-merge(data, sds, by=c("CHR", "POS", "ID"))
 sdsxdata <- sdsxdata[order(sdsxdata$CHR, sdsxdata$POS),]
 combine$sds <- NA
@@ -151,7 +151,7 @@ labs<-aggregate(cc$neargene, by=list(rndanc), paste0, collapse=",")
 
 labs <- labs[labs$x!="LINC00955",]
 
-tiff("plots/scan_sds.tiff", units="mm", width=57, height=57, res=300, compression="lzw")
+tiff("scan_sds.tiff", units="mm", width=57, height=57, res=300, compression="lzw")
 par(list(mar=c(4.4, 4.4, 0.4, 0.1), cex=0.5))
 plot(density(sdsdist$x), xlim=c(0,10), col="darkblue", lwd=3, ylim=c(0,1.5), bty="n", xlab=expression("Mean SDS"^2), main="")
 ## hist(combine$sds, add=TRUE, col= alpha("red", 0.5), breaks=100, freq=FALSE)
@@ -163,13 +163,13 @@ segments(labs[,1]+0.25, 0, labs[,1]+0.25,  0.15, col="red")
 text(3.5, 1.5, "Not shown:\nLCT(x=28.7)", adj=c(0,1))
 dev.off()
 
-tiff("plots/scan_sds2.tiff", units="mm", width=25, height=25, res=300, compression="lzw")
+tiff("scan_sds2.tiff", units="mm", width=25, height=25, res=300, compression="lzw")
 par(list(mar=c(2.4, 2.4, 0.4, 0.1), cex=0.25))
 plot(density(sdsdist$x), col="darkblue", lwd=1, ylim=c(0,1.5), bty="n", xlab="", ylab="", main="")
 hist(combine$sds, add=TRUE, col=alpha("red", 0.5), border=alpha("red", 0.5), breaks=100, freq=FALSE)
 dev.off()
 
-anc <- read.table("data/Supplementary_data_table_3.txt.gz", as.is=TRUE, header=TRUE)
+anc <- read.table("../data/Supplementary_data_table_3.txt.gz", as.is=TRUE, header=TRUE)
 ancxdata <- merge(data, anc,  by=c("CHR", "POS", "ID"))
 ancxdata$ANCSTAT <- qchisq(ancxdata$corrected.p, df=4, lower.tail=FALSE)
 combine$anc <- NA
@@ -185,7 +185,7 @@ rndanc <- floor(2*cc$anc)/2
 labs<-aggregate(cc$neargene, by=list(rndanc), paste0, collapse=",")
 labs <- labs[labs$x!="LINC00955",]
 
-tiff("plots/scan_anc.tiff", units="mm", width=57, height=57, res=300, compression="lzw")
+tiff("scan_anc.tiff", units="mm", width=57, height=57, res=300, compression="lzw")
 par(list(mar=c(4.4, 4.4, 0.4, 0.1), cex=0.5))
 plot(density(ancdist$x), col="darkblue", lwd=3,  bty="n", xlab=expression("Mean test statistic"), main="", xlim=c(0,15))
 ## hist(combine$anc, add=TRUE, col=alpha("red", 0.5), breaks=seq(1, 50,0.5), freq=FALSE)
@@ -200,12 +200,12 @@ dev.off()
 #TODO: add lead snp info, make trajectories, rerun polygenic scan. 
 
 output<-combine[,c( "neargene", "CHR", "start", "end", "lead.snp", "lead.alt", "lead.s")]
-print(xtable(output, type = "latex"), file = "plots/sig_output.tex")
+print(xtable(output, type = "latex"), file = "sig_output.tex")
 
 #hla.bin <- data.bin[data.bin$CHR==6 & data.bin$start>28477797 & data.bin$end<33448354,]
 hla.bin <- data.bin[data.bin$CHR==6 & data.bin$start>28000000 & data.bin$end<34000000,]
 
-pdf("plots/hla_scan.pdf",  width=6.7, height=2.2)
+pdf("hla_scan.pdf",  width=6.7, height=2.2)
 par(list(mar=c(4.5, 5.4, 0.4, 0.5), cex=0.5))
 plot(hla.bin$POS/1e6, -log10(hla.bin$P1), col="white", xlab="Chromosome 6 position hg19 (Mb)",  ylab=expression(-log[10](P-value)), bty="n", tck = 0.01, xaxt="n", ylim=c(0,9), cex.lab=1.5)
 segments(28, -0.3, 34, -0.3)

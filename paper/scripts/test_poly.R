@@ -13,7 +13,7 @@ p.cutoffs <- c(4,6,8)
 
 blank <- rep(NA, length(traits))
 
-selstats <- read.table("data/s_scan_all_brit.txt.gz", as.is=TRUE, header=FALSE)
+selstats <- read.table("../data/s_scan_all_brit.txt.gz", as.is=TRUE, header=FALSE)
 colnames(selstats) <- c("CHR", "POS", "MarkerName", "REF", "ALT", "FREQ", "S", "S1", "S2")
 
 results <- data.frame(trait=traits)
@@ -26,7 +26,7 @@ for(pc in p.cutoffs){
 for(what in traits){
     for(pc in p.cutoffs){
         pcc <- 10^(-pc)
-        gwas <- paste0("data/gwas_results/", what, "_250kb_Capture_intersection.txt")
+        gwas <- paste0("../data/gwas_results/", what, "_250kb_Capture_intersection.txt")
         gwas <- read.table(gwas, as.is=TRUE, header=TRUE)
         data <- merge(gwas, selstats, by=c("CHR", "POS", "MarkerName", "REF", "ALT"))
         data <- data[data$FREQ>0.05 & data$FREQ<0.95,]
@@ -42,7 +42,7 @@ for(what in traits){
 }
 
 for(pv in c(4,6,8)){
-pdf(paste0("plots/poly_scan_", pv, ".pdf"))
+pdf(paste0("poly_scan_", pv, ".pdf"))
 dd <- results[,c("trait", paste0(c("cor.", "p."), pv))]
 colnames(dd) <- c("trait", "cor", "logp")
 dd$logp <- -log10(dd$logp)
@@ -58,4 +58,4 @@ rr<-results[,c("trait", "cor.4", "p.4", "N.4")]
 rr$ref<-NA
 rr$desc<-NA
 rr<-rr[,c("trait", "desc", "ref", "cor.4", "p.4", "N.4")]
-print(xtable(rr, include.rownames=FALSE, include.colnames=TRUE), file="plots/poly.tex")
+print(xtable(rr, include.rownames=FALSE, include.colnames=TRUE), file="poly.tex")
