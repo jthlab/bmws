@@ -8,8 +8,8 @@ work on earlier versions.
 
 ### Simulations
 
-Simulations reported in the paper can be found in [simulations.ipynb](
-simulations.ipynb), which will generate Figure 3.
+Simulations reported in the paper can be run using Simulations_*.py 
+which will generate Figures 3 and S1-S4.
 
 ### Data analysis
 
@@ -38,5 +38,5 @@ simulations.ipynb), which will generate Figure 3.
 scripts:
   - [plot_brit.R](scripts/plot_brit.R)
   - [plot_scan.R](scripts/plot_scan.R)
+  - [LCT_data_analyis.py](LCT_data_analyis.py)
   - [test_poly.R](scripts/test_poly.R)
-  - [LCT_data_analyis.ipynb](LCT_data_analyis.ipynb)
