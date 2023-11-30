@@ -2,7 +2,7 @@ import numpy as np
 import pytest
 from scipy.stats import binom
 
-from common import binom_logpmf, binom_pmf
+from bmws.common import binom_logpmf, binom_pmf
 
 
 @pytest.fixture(params=range(10))
