@@ -3,14 +3,11 @@ import argparse
 import gzip
 import sys
 
-import matplotlib.pyplot as plt
 import numpy as np
-from scipy.stats import beta
 
 import bmws.sim
 from bmws.estimate import estimate_em
 from bmws.betamix import BetaMixture, sample_paths
-
 
 def get_parser():
     parser = argparse.ArgumentParser()
@@ -108,7 +105,7 @@ class vcf:
         if file[-3:] == ".gz":
             self.file = gzip.open(file, "rt")
         else:
-            self.file = open(file, "r")
+            self.file = open(file)
 
         in_header = True
         while in_header:
@@ -147,7 +144,7 @@ def gt_to_obs(ids, gt, meta, data):
     maxgen = max(meta.values())
     obs = [[0, 0] for x in range(maxgen + 1)]
     for i, g in enumerate(gt):
-        if g != None:
+        if g is not None:
             gen = meta[ids[i]]
             if data=="diploid" and g in [0,1,2]:
                 obs[gen][0]+=2
@@ -173,7 +170,7 @@ def analyze_data(args):
     data = vcf(args.vcf)
     ids = data.ids
 
-    lam = 10 ** args.lam
+    lam = 10**args.lam
     for snpinfo, gt in data:
         obs = gt_to_obs(ids, gt, meta, args.data)
         Ne = np.full(len(obs) - 1, args.Ne)

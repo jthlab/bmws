@@ -1,12 +1,11 @@
 import logging
 
-logger = logging.getLogger(__name__)
-from typing import Dict, Union
-
 import numpy as np
 
 from bmws.common import f_sh
-from bmws.estimate import empirical_bayes, estimate, jittable_estimate
+from bmws.estimate import empirical_bayes, estimate
+
+logger = logging.getLogger(__name__)
 
 
 def sim_wf(
@@ -14,7 +13,7 @@ def sim_wf(
     s: np.ndarray,
     h: np.ndarray,
     f0: int,
-    rng: Union[int, np.random.Generator],
+    rng: int | np.random.Generator,
 ):
     """Simulate T generations under wright-fisher model with population size 2N, where
     allele has initial frequency f0 and the per-generation selection coefficient is
@@ -39,7 +38,7 @@ def sim_wf(
 
 
 def sim_full(
-    mdl: Dict,
+    mdl: dict,
     seed: int,
     D: int = 100,
     Ne: int = 1000,
@@ -57,7 +56,7 @@ def sim_full(
 
 
 def sim_and_fit(
-    mdl: Dict,
+    mdl: dict,
     seed: int,
     lam: float,
     Ne=1e4,  # effective population size

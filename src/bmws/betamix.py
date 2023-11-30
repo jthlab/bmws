@@ -1,15 +1,16 @@
 "beta mixture with spikes model"
 from functools import partial
-from typing import NamedTuple, Union
+from typing import NamedTuple
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 from jax import jit, tree_map, vmap
-from jax.experimental.host_callback import id_print
-
-id_print = lambda x, **kwargs: x
 from jax.scipy.special import betaln, gammaln, logsumexp, xlog1py, xlogy
+
+
+def id_print(x, **kw):
+    return x
 
 
 def _logbinom(n, k):
@@ -51,8 +52,8 @@ def _wf_trans(s, N, a, b):
         * (
             4 * (1 + a + b) * (2 + a + b) * (3 + a + b)
             - 4 * (a - b) * (1 + a + b) * (3 + a + b) * s
-            + (a + a ** 3 - a ** 2 * (-2 + b) + b * (1 + b) ** 2 - a * b * (2 + b))
-            * s ** 2
+            + (a + a**3 - a**2 * (-2 + b) + b * (1 + b) ** 2 - a * b * (2 + b))
+            * s**2
         )
     ) / (4.0 * (a + b) ** 2 * (1 + a + b) ** 2 * (2 + a + b) * (3 + a + b))
     Evar, varE = id_print((Evar, varE), what="Evar/VarE")
@@ -109,7 +110,7 @@ class BetaMixture(NamedTuple):
         b = self.b
         EX = a / (a + b)  # EX
         EX2 = a * (a + 1) / (a + b) / (1 + a + b)  # EX2
-        return jnp.array([EX, EX2 - EX ** 2])
+        return jnp.array([EX, EX2 - EX**2])
 
     def __call__(self, x):
         return np.exp(
@@ -262,7 +263,7 @@ def loglik(s, Ne, obs, prior):
     return lls.sum()
 
 
-def _construct_prior(prior: Union[int, BetaMixture]) -> BetaMixture:
+def _construct_prior(prior: int | BetaMixture) -> BetaMixture:
     if isinstance(prior, int):
         M = prior
         prior = BetaMixture.uniform(M)
@@ -275,8 +276,8 @@ def sample_paths(
     Ne: np.ndarray,
     obs: np.ndarray,
     k: int,
-    seed: int=1,
-    prior: Union[int, BetaMixture] = BetaMixture.uniform(100),
+    seed: int = 1,
+    prior: int | BetaMixture = BetaMixture.uniform(100),
 ):
     """
     Sample allele frequency paths from posterior distribution.

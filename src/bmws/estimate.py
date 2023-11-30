@@ -1,19 +1,15 @@
 import logging
 from functools import partial
-from typing import List, Union
 
-import jax
 import jax.numpy as jnp
 import numpy as np
 import scipy.optimize
 import scipy.stats
-from jax import grad, jit, lax, value_and_grad, vmap
-from jax.experimental.host_callback import id_print
+from jax import jit, lax, value_and_grad
 from jax.example_libraries.optimizers import adagrad
 
 import bmws.betamix
 from bmws.betamix import BetaMixture
-from bmws.common import Observation, PosteriorDecoding
 
 logger = logging.getLogger(__name__)
 
@@ -29,8 +25,6 @@ obj = jit(value_and_grad(_obj))
 @partial(jit, static_argnums=(3, 4))
 def empirical_bayes(s, obs, Ne, M, num_steps=100, learning_rate=1.0) -> BetaMixture:
     "maximize marginal likelihood w/r/t prior hyperparameters"
-    from jax.scipy.stats import beta
-
     opt_init, opt_update, get_params = adagrad(learning_rate)
     params = jnp.zeros(2)
     opt_state = opt_init(params)
@@ -71,7 +65,6 @@ def empirical_bayes(s, obs, Ne, M, num_steps=100, learning_rate=1.0) -> BetaMixt
 
 @partial(jit, static_argnums=5)
 def jittable_estimate(obs, Ne, lam, prior, learning_rate=0.1, num_steps=100):
-
     opt_init, opt_update, get_params = adagrad(learning_rate)
     params = jnp.zeros(len(Ne))
     opt_state = opt_init(params)
@@ -110,7 +103,7 @@ def estimate(
     obs,
     Ne,
     lam: float = 1.0,
-    prior: Union[int, BetaMixture] = 100,
+    prior: int | BetaMixture = 100,
     solver_options: dict = {},
 ):
     args = (Ne, obs, prior)

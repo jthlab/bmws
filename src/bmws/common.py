@@ -1,11 +1,7 @@
-import functools
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Tuple, Union
 
 import jax
 import numpy as np
-from jax import numpy as jnp
-from jax.scipy.special import gammaln, xlog1py, xlogy
 
 
 def f_sh(x: float, s: float, h: float) -> float:
@@ -13,7 +9,7 @@ def f_sh(x: float, s: float, h: float) -> float:
     ret = (
         x
         * (1 + s * h + s * (1 - h) * x)
-        / (1 + 2 * s * h * x + s * (1 - 2 * h) * x ** 2)
+        / (1 + 2 * s * h * x + s * (1 - 2 * h) * x**2)
     )
     # ret = id_print(ret, what="f_sh")
     return ret
@@ -22,8 +18,10 @@ def f_sh(x: float, s: float, h: float) -> float:
 def binom_logpmf(k, n, p):
     return jax.scipy.stats.binom.logpmf(k=k, n=n, p=p)
 
+
 def binom_pmf(k, n, p):
     return jax.scipy.stats.binom.pmf(k=k, n=n, p=p)
+
 
 @dataclass(frozen=True)
 class PosteriorDecoding:
@@ -37,12 +35,12 @@ class PosteriorDecoding:
 
     gamma: np.ndarray
     t: np.ndarray
-    hidden_states: List[np.ndarray]
+    hidden_states: list[np.ndarray]
     Ne: np.ndarray
     B: np.ndarray = None
     T: np.ndarray = None
 
-    def draw(self, ax=None, k=10_000, seed: int = 1) -> "matplotlib.Axis":
+    def draw(self, ax=None, k=10_000, seed: int = 1) -> "matplotlib.Axis":  # noqa: F821
         if ax is None:
             import matplotlib.pyplot as plt
 
