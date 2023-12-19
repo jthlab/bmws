@@ -65,6 +65,7 @@ def sim_and_fit(
     k=10,  # sampling interval - either an integer, or an iterable of sampling times.
     Ne_fit=None,  # Ne to use for estimation (if different to that used for simulation)
     em_iterations=3,  # use empirical bayes to infer prior hyperparameters
+    af=None, #Specify trajectory rather than simulating. 
     M=100,  # number of mixture components
     **kwargs
 ):
@@ -92,7 +93,8 @@ def sim_and_fit(
     # Simulate true trajectory
     rng = np.random.default_rng(seed)
     # simulate the wright-fisher model. all parametetr vectros are reversed so that times runs from past to present.
-    af = sim_wf(Ne[::-1], mdl["s"][::-1], mdl["h"][::-1], mdl["f0"], rng)[::-1]
+    if af is None:
+        af = sim_wf(Ne[::-1], mdl["s"][::-1], mdl["h"][::-1], mdl["f0"], rng)[::-1]
     obs = np.zeros([T, 2])
     obs[sample_times, :] = [
         (n, rng.binomial(n, af[t])) for n, t in zip(sample_sizes, sample_times)
