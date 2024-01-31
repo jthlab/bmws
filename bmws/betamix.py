@@ -5,7 +5,7 @@ from typing import NamedTuple, Union
 import jax
 import jax.numpy as jnp
 import numpy as np
-from jax import jit, tree_map, tree_multimap, vmap
+from jax import jit, tree_map, vmap
 from jax.experimental.host_callback import id_print
 
 id_print = lambda x, **kwargs: x
@@ -320,10 +320,10 @@ def sample_paths(
     (betas, beta_n), _ = forward(s, Ne, obs, prior)
 
     beta0 = tree_map(lambda a: a[0], betas)
-    beta1n = tree_multimap(
+    beta1n = tree_map(
         lambda a, b: jnp.concatenate([a[1:], b[None]]), betas, beta_n
     )
-    betas = tree_multimap(lambda a, b: jnp.concatenate([a, b[None]]), betas, beta_n)
+    betas = tree_map(lambda a, b: jnp.concatenate([a, b[None]]), betas, beta_n)
 
     def _f(tup, beta):
         rng, s1 = tup
