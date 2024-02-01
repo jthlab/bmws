@@ -7,8 +7,8 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import beta
 
-import bmws.estimate
 import bmws.sim
+from bmws.estimate import estimate_em
 from bmws.betamix import BetaMixture, sample_paths
 
 
@@ -26,7 +26,7 @@ def get_parser():
         "analyze",
         help="analyze data",
     )
-    analyze.set_defaults(func=analyze)
+    analyze.set_defaults(func=analyze_data)
 
     analyze.add_argument("vcf", type=str, default="", help="vcf input files")
     analyze.add_argument("meta", type=str, help="meta-information file")
@@ -37,6 +37,9 @@ def get_parser():
         default=sys.stdout,
         help="output file",
     )
+    analyze.add_argument('-d', '--data', type=str, required=True,
+                             choices=["pseudohaploid", "diploid"],
+                             help="are your data diploid or pseudohaploid?")
     analyze.add_argument(
         "-l", "--lam", type=float, default=5, help="log10(lambda) to use; default 5"
     )
@@ -119,7 +122,7 @@ class vcf:
         """
         Iterate over remaining lines of file.
         """
-        map = {"1/1": 1, "0/0": 0, "./.": None}
+        map={"1/1":2, "1/0":1, "0/1":1, "0/0":0, "./.":None}
         line = self.file.readline()
 
         if not line:
@@ -132,18 +135,24 @@ class vcf:
         return (snpinfo, gt)
 
 
-def gt_to_obs(ids, gt, meta):
+def gt_to_obs(ids, gt, meta, data):
     """
     convert gt to an observation list of (Obs, Alt) counts
+    data should be either "pseudohaploid" or "diploid"
     """
-
     maxgen = max(meta.values())
     obs = [[0, 0] for x in range(maxgen + 1)]
     for i, g in enumerate(gt):
         if g != None:
             gen = meta[ids[i]]
-            obs[gen][0] += 1
-            obs[gen][1] += g
+            if data=="diploid" and g in [0,1,2]:
+                obs[gen][0]+=2
+                obs[gen][1]+=g
+            elif data=="pseudohaploid" and g in [0,2]:
+                obs[gen][0]+=1
+                obs[gen][1]+=g//2
+            else:
+                raise Exception("Unknown genotype for data\n"+str(gt))
 
     obs = np.array(obs)
     return obs
@@ -155,16 +164,16 @@ def bmws_main(arg_list=None):
     args.func(args)
 
 
-def analyze(args):
+def analyze_data(args):
     meta = read_meta_information(args)
     data = vcf(args.vcf)
     ids = data.ids
 
     lam = 10 ** args.lam
     for snpinfo, gt in data:
-        obs = gt_to_obs(ids, gt, meta)
+        obs = gt_to_obs(ids, gt, meta, args.data)
         Ne = np.full(len(obs) - 1, args.Ne)
-        res, prior = bmws.estimate.estimate_em(obs, Ne, lam=lam, em_iterations=args.em)
+        res, prior = estimate_em(obs, Ne, lam=lam, em_iterations=args.em)
 
         smn = np.mean(res)
         sl1 = np.sqrt(np.mean(res * res))

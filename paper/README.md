@@ -24,12 +24,13 @@ which will generate Figures 3 and S1-S4.
   analysis described in the paper using the command 
   
   ```
-  bmws analyze data/allbrit.vcf.gz data/allbrit.meta -l 4.5 -o out
+  bmws analyze data/allbrit.vcf.gz data/allbrit.meta -l 4.5 -d pseudohaploid
   ```
 
-  The analysis can easily be parallelized by splitting the vcf file into
-  chunks. On our servers the analysis took about 10,000 CPU-hours to
-  run, so we don't reccomend running in one go. For convenience, we
+  On our servers the analysis took about 10,000 CPU-hours to
+  run, so we don't reccomend running in one go. It can easily be
+  parallelized by splitting the vcf file into
+  chunks. For convenience, we
   also provide the results of this analysis in the file
   `data/s_scan_all_brit.txt.gz`, and the randomized results in the file
   `data/s_scan_all_brit_random.txt.gz`.
