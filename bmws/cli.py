@@ -52,6 +52,10 @@ def get_parser():
     analyze.add_argument(
         "-n", "--Ne", type=float, default=10000, help="Effective population size"
     )
+    analyze.add_argument(
+        "-t", "--traj", action='store_true', help="output selection trajectory for each SNP; selection coefficeint for the alt allele in generation i is in column 10+i"
+    )
+
     return parser
 
 
@@ -180,15 +184,20 @@ def analyze_data(args):
         sl2 = np.sqrt(np.mean((res - np.mean(res)) ** 2))
         freq = np.sum(obs[:, 1]) / np.sum(obs[:, 0])
 
-        print(
-            "\t".join(
-                snpinfo
-                + [
+        info = [
                     str(round(freq, 3)),
-                    str(round(smn, 6)),
+                    str(round(-smn, 6)),
                     str(round(sl1, 6)),
                     str(round(sl2, 6)),
                 ]
+
+        if args.traj:
+            info = info + [str(round(-f, 6)) for f in res]
+            
+        print(
+            "\t".join(
+                snpinfo
+                + info
             ),
             file=args.out,
         )
