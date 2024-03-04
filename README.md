@@ -9,4 +9,11 @@ Install it by typing
 ```
 $ pip install -e git+https://github.com/jthlab/bmws#egg=bmws
 ```
-at the command line on a Unix-like system. This will install a `bmws` command-line program on your system. For usage examples and reproducible analyses from the manuscript, see the accompanying [README](paper/README.md).
+at the command line on a Unix-like system. This will install a `bmws` command-line program on your system. 
+
+Alternatively, run the Docker image directly (without installing anything) via
+```
+$ docker run terhorst/bmws
+```
+
+For usage examples and reproducible analyses from the manuscript, see the accompanying [README](paper/README.md).
