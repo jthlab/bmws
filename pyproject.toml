@@ -1,9 +1,46 @@
 [build-system]
-# AVOID CHANGING REQUIRES: IT WILL BE UPDATED BY PYSCAFFOLD!
-requires = ["setuptools>=46.1.0", "setuptools_scm[toml]>=5"]
+requires = ["setuptools", "setuptools-scm"]
 build-backend = "setuptools.build_meta"
 
 [tool.setuptools_scm]
 # For smarter version schemes and other configuration options,
 # check out https://github.com/pypa/setuptools_scm
 version_scheme = "no-guess-dev"
+
+[tool.pdm]
+distribution = false
+package-dir = "src"
+
+[project]
+name = "bmws"
+version = "0.1.0"
+description = "Beta-mixture with spikes model"
+authors = [
+    {name = "Iain Mathieson", email="mathi@pennmedicine.upenn.edu"},
+    {name = "Jonathan Terhorst", email = "jonth@umich.edu"},
+]
+dependencies = [
+    "setuptools>=69.1.1",
+    "jax",
+    "jaxlib",
+    "matplotlib",
+    "numpy",
+    "scipy",
+]
+requires-python = ">=3.10"
+readme = "README.md"
+license = {text = "MIT"}
+
+[project.urls]
+Homepage = "https://github.com/jthlab/bmws"
+
+[project.optional-dependencies]
+testing = [
+    "pytest>=8.0.2",
+    "pytest-console-scripts",
+    "pytest-cov",
+    "setuptools",
+]
+
+[project.scripts]
+bmws = "bmws.cli:bmws_main"
