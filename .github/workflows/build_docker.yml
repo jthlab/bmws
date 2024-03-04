@@ -40,4 +40,4 @@ jobs:
           context: .
           file: ./Dockerfile
           push: true
-          tags: yourusername/yourrepo:${{ env.VERSION }}
+          tags: terhorst/bmws:${{ env.VERSION }}
